@@ -62,6 +62,8 @@ func SetupRouter() *gin.Engine {
 
 		// 👇 新增这个接口 (比如叫 /my-submissions)
 		protected.GET("/my-submissions", controllers.GetMySubmissions)
+
+		protected.GET("/ws", controllers.ConnectWS)
 	}
 
 	return r

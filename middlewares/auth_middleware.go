@@ -11,24 +11,24 @@ import (
 
 // AuthMiddleware 是验证 JWT 的保安
 func AuthMiddleware() gin.HandlerFunc {
+	var tokenString string
 	return func(c *gin.Context) {
 		// 1. 行业规范：前端发请求时，必须把 Token 放在 HTTP 头部的 "Authorization" 字段里
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "安检失败：你没有佩戴手环，请先登录"})
-			c.Abort() // 驱逐！
-			return
+		if authHeader != "" {
+			// 🚪 走大门 (Header)：必须严格遵守 "Bearer xxx" 的行业规范
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "安检失败：Header 手环格式不合法"})
+				c.Abort()
+				return
+			}
+			// 拿到被切开的后半段真身
+			tokenString = parts[1]
+		} else {
+			// 🚪 走小门 (WebSocket 的 URL)：没有 Bearer 前缀，拿到的直接就是真身
+			tokenString = c.Query("token")
 		}
-
-		// 2. 行业规范 2：Token 字符串通常以 "Bearer " 开头 (比如 "Bearer aaaa.bbbb.cccc")
-		// 我们需要用空格把它切开，拿后面真正的那串乱码
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "安检失败：手环格式不合法"})
-			c.Abort() // 驱逐！
-			return
-		}
-		tokenString := parts[1] // 真正的 token
 
 		// 3. 呼叫工具部门，把 token 塞进验钞机
 		claims, err := utils.ParseToken(tokenString)

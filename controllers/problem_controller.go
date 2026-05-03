@@ -80,7 +80,6 @@ func CreateProblem(c *gin.Context) {
 
 // GetProblemList 获取题目列表（菜单）
 func GetProblemList(c *gin.Context) {
-	git - v
 	// 1. 从 URL 的问号后面拿分页参数，如果没传，就给默认值
 	pageStr := c.DefaultQuery("page", "1")
 	limitStr := c.DefaultQuery("limit", "10")

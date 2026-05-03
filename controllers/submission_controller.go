@@ -50,6 +50,7 @@ func SubmitCode(c *gin.Context) {
 
 	// 5.1 把工人干活需要的所有参数，打包成一个结构体
 	task := map[string]interface{}{
+		"user_id":       userID.(uint),
 		"submission_id": submission.ID,
 		"problem_id":    req.ProblemID,
 		"code":          req.Code,

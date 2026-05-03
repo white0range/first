@@ -15,6 +15,7 @@ import (
 	"gojo/global"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -23,6 +24,7 @@ type JudgeTask struct {
 	SubmissionID uint   `json:"submission_id"`
 	ProblemID    uint   `json:"problem_id"`
 	Code         string `json:"code"`
+	UserID       uint   `json:"user_id"`
 }
 
 // StartWorkerPool 是包工头，负责一次性招募并启动 N 个工人
@@ -188,4 +190,19 @@ func processSingleTask(workerID int, task JudgeTask) {
 			Where("id = ?", task.ProblemID).
 			UpdateColumn("accepted_count", gorm.Expr("accepted_count + ?", 1))
 	}
+
+	// ==========================================
+	// 💥 【新增】：拿起对讲机，顺着网线拍在玩家屏幕上！
+	// ==========================================
+	// 假设你的 task 里能拿到提交者的 userID。如果没有，你需要查一下数据库
+	userIDStr := fmt.Sprintf("%d", task.UserID)
+
+	global.SendWsMessage(userIDStr, gin.H{
+		"type":          "JUDGE_RESULT",    // 告诉前端这是一个判题结果通知
+		"submission_id": task.SubmissionID, // 哪一次提交
+		"status":        finalStatus,       // 是绿色的 AC，还是红色的 WA
+		"message":       "你的代码判完了，赶紧看结果！",
+	})
+
+	fmt.Printf("🚀 实时判题结果已光速推送到玩家 %s 的呼叫器！\n", userIDStr)
 }
