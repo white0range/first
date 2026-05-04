@@ -24,7 +24,11 @@ type Problem struct {
 	AcceptedCount int `gorm:"type:int;default:0" json:"accepted_count"` // 有多少次是 AC (完全正确) 的
 
 	// 【GORM魔法口袋】：逻辑外键，告诉 GORM 怎么拼装数据，绝对不会在 MySQL 里生成这一列！
-	TestCases []TestCase `gorm:"foreignKey:ProblemID" json:"test_cases"`
+	TestCases []TestCase `gorm:"foreignKey:ProblemID" json:"-"`
+	// 💥 新增这个字段！
+	// gorm:"-" 的意思是：包工头GORM你不要管它，数据库里没有这列！
+	// json:"is_ac" 的意思是：转成 JSON 发给前端时，叫这个名字。
+	IsAC bool `gorm:"-" json:"is_ac"`
 }
 
 // 顺便在这里准备一个接客用的 DTO 表单

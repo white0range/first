@@ -19,6 +19,7 @@ type User struct {
 
 	// OJ 平台特有字段：解决的题目数量 (大写 'S')
 	SolvedCount int `gorm:"default:0" json:"solved_count"`
+	Role        int `gorm:"type:tinyint;default:0;comment:0-普通用户, 1-超级管理员"`
 }
 
 // UserRequest 是专门用来接收前端登录/注册数据的表单 (DTO)

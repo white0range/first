@@ -53,11 +53,17 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		role, ok := (*claims)["role"].(float64)
+		if !ok {
+			// 只要 ok 是 false，说明遇到了脏数据，直接把请求踢出去，绝不给它变成 0 并在系统里乱跑的机会！
+			c.JSON(401, gin.H{"error": "数据异常"})
+			return
+		}
 
 		// c.Set 就是往当前这次请求的上下文中存数据
 		c.Set("userID", userID)
 		c.Set("username", username)
-
+		c.Set("role", uint(role)) // 👈 加上这句，把阶级标签贴在他后背上
 		// 5. 恭喜你，放行！
 		c.Next()
 	}

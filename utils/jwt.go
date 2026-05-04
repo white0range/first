@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"gojo/models"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -13,11 +14,12 @@ var jwtSecret = []byte("my_super_secret_oj_key_2026")
 
 // GenerateToken 负责为登录成功的用户生成专属手环
 // 传入用户的 ID 和用户名，把它们封印在手环里
-func GenerateToken(userID uint, username string) (string, error) {
+func GenerateToken(user *models.User) (string, error) {
 	// 1. 创建手环里面的数据载体（Payload）
 	claims := jwt.MapClaims{
-		"user_id":  userID,
-		"username": username,
+		"user_id":  user.ID,
+		"username": user.Username,
+		"role":     user.Role,
 		// 设置手环的过期时间，比如 24 小时后失效
 		"exp": time.Now().Add(24 * time.Hour).Unix(),
 	}

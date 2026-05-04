@@ -39,23 +39,29 @@ func SetupRouter() *gin.Engine {
 	protected := r.Group("/api")
 	protected.Use(middlewares.AuthMiddleware())
 	{
+		// ==========================================
+		// 👑 皇家禁地：管理员专属操作台
+		// ==========================================
+		adminGroup := protected.Group("/admin")
+		adminGroup.Use(middlewares.AdminCheck()) // 禁卫军：查是不是管理员！
+		{
+			protected.POST("/problems", controllers.CreateProblem)
+			// 👉 重点：给 /submit 接口单独套上限流保护！
+			// 注意看写法：在路径和真实逻辑之间，插入 middlewares.SubmitRateLimit()
+			adminGroup.PUT("/problems/:id", controllers.UpdateProblem)
+			adminGroup.DELETE("/problems/:id", controllers.DeleteProblem)
+
+			// 1. 获取列表：GET /api/admin/problems/1/cases 👈 【我们刚加的！】
+			adminGroup.GET("/problems/:id/cases", controllers.GetTestCases)
+			// 给题目加样例：POST /api/admin/problems/1/cases
+			adminGroup.POST("/problems/:id/cases", controllers.AddTestCase)
+			// 删掉某个样例：DELETE /api/admin/problems/cases/10
+			// (注意这里的路径，因为删除只需要样例的 ID 即可，不需要题目的 ID)
+			adminGroup.DELETE("/problems/cases/:case_id", controllers.DeleteTestCase)
+		}
 		// 这个括号里所有的路由，都会被保安死死守住！
-		protected.GET("/profile", func(c *gin.Context) {
-			// 能走到这里，说明百分之百是合法顾客。
-			// 我们直接从他后背上把刚才保安贴的标签撕下来用！
-			userID, _ := c.Get("userID")
-			username, _ := c.Get("username")
+		protected.GET("/profile", controllers.GetProfile)
 
-			c.JSON(http.StatusOK, gin.H{
-				"message": "尊贵的 VIP 用户，欢迎来到核心区域！",
-				"my_id":   userID,
-				"my_name": username,
-			})
-		})
-
-		protected.POST("/problems", controllers.CreateProblem)
-		// 👉 重点：给 /submit 接口单独套上限流保护！
-		// 注意看写法：在路径和真实逻辑之间，插入 middlewares.SubmitRateLimit()
 		protected.POST("/submit", middlewares.SubmitRateLimit(), controllers.SubmitCode)
 		// 👇 【新增】查结果的接口 (注意是用 GET 请求，且路径带动态参数 :id)
 		protected.GET("/submissions/:id", controllers.GetSubmissionResult)

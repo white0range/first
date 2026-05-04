@@ -85,7 +85,7 @@ func Login(c *gin.Context) {
 	}
 
 	// 4. 密码正确！呼叫 utils 部门，给他打印专属手环
-	token, err := utils.GenerateToken(user.ID, user.Username)
+	token, err := utils.GenerateToken(&user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "手环生成失败"})
 		return
@@ -95,5 +95,40 @@ func Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "登录成功！",
 		"token":   token, // 前端拿到这个 token 后，会把它存进浏览器的 LocalStorage 里
+	})
+}
+
+// GetProfile 获取当前登录用户的个人主页（战绩大屏）
+func GetProfile(c *gin.Context) {
+	// 1. 极其严格的身份校验（必须挂在 AuthMiddleware 后面）
+	userIDAny, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
+		return
+	}
+	userID := userIDAny.(uint) // 断言为 uint
+
+	// 2. 查基本信息 (假设你的 User 表里加上了 submit_count 和 solved_count)
+	var user models.User
+	// 用 Select 剔除密码等敏感字段，绝对不能发给前端！
+	if err := models.DB.Select("id", "username", "role", "submit_count", "solved_count").First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
+		return
+	}
+
+	// 3. 💥 核心魔法：去 submissions 表里，把该用户所有 AC 过的题目 ID 捞出来！
+	var solvedProblemIDs []uint
+	models.DB.Model(&models.Submission{}).
+		Where("user_id = ? AND status = ?", userID, "AC"). // 条件：当前用户 + AC状态
+		Distinct("problem_id").                            // 去重：同一道题 AC 多次只算一次
+		Pluck("problem_id", &solvedProblemIDs)             // 极其高效！把那一列直接抽成一个一维数组 []uint
+
+	// 4. 完美组装返回
+	c.JSON(http.StatusOK, gin.H{
+		"message": "获取战绩大屏成功",
+		"data": gin.H{
+			"user_info":   user,
+			"solved_list": solvedProblemIDs, // 返回格式类似：[1, 5, 8, 23]
+		},
 	})
 }

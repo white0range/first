@@ -5,6 +5,7 @@ import (
 	"encoding/json" // 记得引入 JSON 包
 	"gojo/global"
 	"gojo/models"
+	"gojo/utils"
 	"net/http"
 	"strconv"
 
@@ -114,35 +115,37 @@ func GetMySubmissions(c *gin.Context) {
 	}
 
 	// 2. 提取分页参数 (和大厅列表一样)
-	pageStr := c.DefaultQuery("page", "1")
-	limitStr := c.DefaultQuery("limit", "10")
-	page, _ := strconv.Atoi(pageStr)
-	limit, _ := strconv.Atoi(limitStr)
-	if page <= 0 {
-		page = 1
-	}
-	if limit <= 0 || limit > 50 {
-		limit = 10
-	}
-	offset := (page - 1) * limit
+	////////////////////////////
 
 	var submissions []models.Submission
 	var total int64
 
-	// 3. 递空名片，查总数 (注意：要加上 Where 条件，只查当前用户的！)
-	models.DB.Model(&models.Submission{}).
-		Where("user_id = ?", userID).
-		Count(&total)
+	// ==========================================
+	// 🔍 阶段一：拼装基础查询条件 (不要立刻 Find)
+	// ==========================================
+	// 提取出一个公共的 query 对象，死死锁定当前用户的 ID
+	query := models.DB.Model(&models.Submission{}).Where("user_id = ?", userID)
 
-	// 4. 查具体的战绩列表
-	// 【大厂细节 1】：Order("created_at desc") 按照时间倒序，最新提交的排在最前面！
-	// 【大厂细节 2】：Omit("code", "actual_output") 如果不需要在列表页展示几百行的代码和长篇报错日志，可以用 Omit 剔除这些大字段，极大地节省网络带宽。
-	models.DB.Where("user_id = ?", userID).
-		Order("created_at desc").      // desc 是 descending (降序) 的缩写
-		Omit("code", "actual_output"). // 列表页不查大文本（可选项，看你的前端设计）
-		Limit(limit).
-		Offset(offset).
-		Find(&submissions)
+	// ==========================================
+	// 📊 阶段二：查总数 (干干净净地查，没有 Limit 和 Offset)
+	// ==========================================
+	query.Count(&total)
+
+	// ==========================================
+	// 💥 阶段三：挂载分页神器 & 排序剔除 & 获取数据
+	// ==========================================
+	// 直接在刚才的 query 上调用 .Scopes(utils.Paginate(c))
+	if err := query.Scopes(utils.Paginate(c)).
+		Order("created_at desc").      // 最新提交排前面
+		Omit("code", "actual_output"). // 剔除大体积字段，保护带宽
+		Find(&submissions).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "系统异常，获取记录失败"})
+		return
+	}
+
+	// 补充：如果你前端非要在返回值里要 page 和 limit 回显，简单提取一下即可
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
 	// 5. 组装并返回
 	c.JSON(http.StatusOK, gin.H{
