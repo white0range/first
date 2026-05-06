@@ -29,6 +29,9 @@ type Problem struct {
 	// gorm:"-" 的意思是：包工头GORM你不要管它，数据库里没有这列！
 	// json:"is_ac" 的意思是：转成 JSON 发给前端时，叫这个名字。
 	IsAC bool `gorm:"-" json:"is_ac"`
+	// 这行代码会让 GORM 自动在底层帮你建一张叫 `problem_tags` 的中间表！
+	// 里面只有两个字段：problem_id 和 tag_id
+	Tags []Tag `gorm:"many2many:problem_tags;" json:"tags"`
 }
 
 // 顺便在这里准备一个接客用的 DTO 表单
@@ -40,5 +43,6 @@ type ProblemRequest struct {
 	MemoryLimit int    `json:"memory_limit"`
 
 	// 直接复用 TestCaseRequest！
-	TestCases []TestCaseRequest `json:"test_cases" binding:"required,gt=0"`
+	TestCases []TestCaseRequest `json:"test_cases"`
+	TagIDs    []uint            `json:"tag_ids"`
 }

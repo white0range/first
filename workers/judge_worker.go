@@ -190,7 +190,35 @@ func processSingleTask(workerID int, task JudgeTask) {
 			Where("id = ?", task.ProblemID).
 			UpdateColumn("accepted_count", gorm.Expr("accepted_count + ?", 1))
 	}
+	// 只有 AC（完全通过）才配拿分
+	if finalStatus == "AC" {
 
+		// 🚨 防刷分检测：去数据库查一下，这道题他以前 AC 过没有？
+		var acCount int64
+		models.DB.Model(&models.Submission{}).
+			Where("user_id = ? AND problem_id = ? AND status = 'AC'", task.UserID, task.ProblemID).
+			Count(&acCount)
+
+		// 极其关键的判断：如果 count == 1，说明刚才保存的那条记录，是他这辈子的【第一次 AC】！
+		// 如果 count > 1，说明他以前早就做对过了，这次是重复提交，不给分！
+		if acCount == 1 {
+			//用户解决数量++
+			models.DB.Model(&models.User{}).
+				Where("id = ?", task.UserID).
+				UpdateColumn("solved_count", gorm.Expr("solved_count + ?", 1))
+			// 假设每道题固定加 10 分（你以后也可以改成根据 problem 的 Difficulty 字段加分）
+			scoreToAdd := 10.0
+
+			// 调用刚才写的 Redis 水管，极速写入！
+			err := utils.AddUserScore(task.UserID, scoreToAdd)
+			if err != nil {
+				// 记录一下日志，防止 Redis 偶尔网络抖动导致丢分
+				fmt.Printf("给用户 %d 加分失败: %v\n", task.UserID, err)
+			} else {
+				fmt.Printf("🎉 恭喜用户 %d 首次 AC 题目 %d，喜提 10 分！\n", task.UserID, task.ProblemID)
+			}
+		}
+	}
 	// ==========================================
 	// 💥 【新增】：拿起对讲机，顺着网线拍在玩家屏幕上！
 	// ==========================================

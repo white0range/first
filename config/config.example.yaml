@@ -1,0 +1,14 @@
+# config/config.example.yaml (这个文件要推到 GitHub 上)
+sql:
+  dsn: ""
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+jwt:
+  secret: ""
+
+ai:
+  api_key: ""

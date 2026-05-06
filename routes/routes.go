@@ -32,6 +32,9 @@ func SetupRouter() *gin.Engine {
 	r.GET("/api/problems", controllers.GetProblemList)
 	// GET 请求：获取题目详情。注意这个 ":id" 是 Gin 特有的动态路由语法
 	r.GET("/api/problems/:id", controllers.GetProblemDetail)
+
+	r.GET("/api/tags", controllers.GetTagList) // 👈 新增：公共获取标签接口
+	r.GET("/api/leaderboard", middlewares.OptionalAuth(), controllers.GetGlobalLeaderboard)
 	// ====================
 	// 核心区域：必须通过安检 (使用中间件)
 	// ====================
@@ -45,7 +48,7 @@ func SetupRouter() *gin.Engine {
 		adminGroup := protected.Group("/admin")
 		adminGroup.Use(middlewares.AdminCheck()) // 禁卫军：查是不是管理员！
 		{
-			protected.POST("/problems", controllers.CreateProblem)
+			adminGroup.POST("/problems", controllers.CreateProblem)
 			// 👉 重点：给 /submit 接口单独套上限流保护！
 			// 注意看写法：在路径和真实逻辑之间，插入 middlewares.SubmitRateLimit()
 			adminGroup.PUT("/problems/:id", controllers.UpdateProblem)
@@ -58,6 +61,10 @@ func SetupRouter() *gin.Engine {
 			// 删掉某个样例：DELETE /api/admin/problems/cases/10
 			// (注意这里的路径，因为删除只需要样例的 ID 即可，不需要题目的 ID)
 			adminGroup.DELETE("/problems/cases/:case_id", controllers.DeleteTestCase)
+			adminGroup.POST("/tags", controllers.CreateTag) // 👈 新增：超管创建标签
+			// 👇 新增这两个门牌号
+			adminGroup.DELETE("/tags/:id", controllers.DeleteTag)
+			adminGroup.PUT("/problems/:id/tags", controllers.UpdateProblemTags) // 注意这里是 PUT，表示全量替换
 		}
 		// 这个括号里所有的路由，都会被保安死死守住！
 		protected.GET("/profile", controllers.GetProfile)
@@ -70,6 +77,8 @@ func SetupRouter() *gin.Engine {
 		protected.GET("/my-submissions", controllers.GetMySubmissions)
 
 		protected.GET("/ws", controllers.ConnectWS)
+		//ai助手
+		protected.GET("/submissions/:id/ai-help", middlewares.AIRateLimit(), controllers.GetAIAssistance)
 	}
 
 	return r

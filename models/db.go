@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"gojo/config"
 	"log"
 
 	"gorm.io/driver/mysql"
@@ -17,7 +18,7 @@ var DB *gorm.DB
 func InitDB() {
 	// 1. 准备连接字符串 (这里为了演示顺畅，我们先写在代码里。
 	// 等项目跑通了，我们再把它抽离到 .yaml 配置文件里去)
-	dsn := "root:123456@tcp(127.0.0.1:3306)/gin_demo?charset=utf8mb4&parseTime=True&loc=Local"
+	dsn := config.AppConfig.SQL.Dsn
 
 	// 2. 尝试连接数据库
 	var err error
@@ -37,6 +38,7 @@ func InitDB() {
 		&Problem{}, // 新增：把题目图纸交给包工头
 		&Submission{},
 		&TestCase{},
+		&Tag{},
 	)
 	if err != nil {
 		log.Fatal("建表失败: ", err)

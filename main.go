@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"gojo/config"
 	"gojo/global"
 	"gojo/judge"
 	"gojo/models"
@@ -12,7 +13,8 @@ import (
 
 func main() {
 	fmt.Println("正在启动 OJ 平台核心服务器...")
-
+	// 必须放在最前面！先加载配置，再去初始化 MySQL、Redis
+	config.InitConfig()
 	// 第一步：先让模型部门把数据库连上，建好表
 	models.InitDB()
 

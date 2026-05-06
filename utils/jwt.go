@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"gojo/config"
 	"gojo/models"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 
 // 公司的最高机密：签名密钥！
 // 绝对不能泄露，如果有黑客拿到了这串乱码，他就能自己伪造咱们 OJ 平台的手环了
-var jwtSecret = []byte("my_super_secret_oj_key_2026")
+var jwtSecret = []byte(config.AppConfig.JWT.Secret)
 
 // GenerateToken 负责为登录成功的用户生成专属手环
 // 传入用户的 ID 和用户名，把它们封印在手环里

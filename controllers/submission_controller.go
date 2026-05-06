@@ -6,6 +6,7 @@ import (
 	"gojo/global"
 	"gojo/models"
 	"gojo/utils"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -101,6 +102,7 @@ func GetSubmissionResult(c *gin.Context) {
 		"problem_id":    submission.ProblemID,
 		"status":        submission.Status,       // 可能是 Pending, AC, WA, CE, SE 等
 		"actual_output": submission.ActualOutput, // 如果报错了，这里有详细日志
+		"code":          submission.Code,
 		"language":      submission.Language,
 	})
 }
@@ -156,5 +158,75 @@ func GetMySubmissions(c *gin.Context) {
 			"page":  page,
 			"limit": limit,
 		},
+	})
+}
+
+// GetAIAssistance 呼叫 AI 导师分析某次提交
+func GetAIAssistance(c *gin.Context) {
+	submissionID := c.Param("id")
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "系统异常：无法获取当前用户身份"})
+		return
+	}
+
+	// 1. 查出这条战绩
+	var submission models.Submission
+	if err := models.DB.First(&submission, submissionID).Error; err != nil {
+		c.JSON(404, gin.H{"error": "找不到该战绩"})
+		return
+	}
+
+	// 2. 权限校验：只能让 AI 分析自己的代码（防白嫖和防泄露）
+	if submission.UserID != userID {
+		c.JSON(403, gin.H{"error": "您只能呼叫 AI 诊断自己的代码！"})
+		return
+	}
+
+	// 3. 如果是 AC (通过) 的代码，导师不屑于看
+	if submission.Status == "AC" {
+		c.JSON(400, gin.H{"message": "代码已经完美通过，无需导师诊断！"})
+		return
+	}
+
+	// 2. 极其关键：设置响应头，告诉前端“我要开始喷水了，别挂断！”
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+
+	// 3. 💥 优雅调用 utils 里的底层能力，拿到“水龙头”
+	stream, err := utils.AskAIStream(submission.Code, submission.Language, submission.ActualOutput)
+	if err != nil {
+		c.SSEvent("error", "AI 导师暂时无法连接")
+		return
+	}
+	defer stream.Close() // 离开这个接口时，务必关掉底层的大模型连接！
+	// 4. 召唤 AI (这一步可能会卡顿 2-5 秒)
+	//aiAdvice, err := utils.AskAI(submission.Code, submission.Language, submission.ActualOutput)
+	//if err != nil {
+	//	c.JSON(500, gin.H{"error": "AI 导师正在休息，请稍后再试"})
+	//	return
+	//}
+	//// 5. 将导师的建议返回给前端
+	//c.JSON(200, gin.H{
+	//	"message": "AI 诊断完成",
+	//	"advice":  aiAdvice,
+	//})
+
+	// 4. 开始把接到的水，转发给前端
+	c.Stream(func(w io.Writer) bool {
+		// 从 utils 的水龙头里接一滴水
+		response, err := stream.Recv()
+
+		if err != nil {
+			// 如果遇到 EOF (End Of File)，说明 AI 说完了，正常结束连接
+			// 如果是其他 err，说明中途断了，也得结束连接
+			return false
+		}
+
+		// 把大模型吐出来的这个字，立刻推给前端
+		c.SSEvent("message", response.Choices[0].Delta.Content)
+
+		return true // 告诉 Gin：我还没发完，继续保持循环！
 	})
 }

@@ -111,7 +111,7 @@ func GetProfile(c *gin.Context) {
 	// 2. 查基本信息 (假设你的 User 表里加上了 submit_count 和 solved_count)
 	var user models.User
 	// 用 Select 剔除密码等敏感字段，绝对不能发给前端！
-	if err := models.DB.Select("id", "username", "role", "submit_count", "solved_count").First(&user, userID).Error; err != nil {
+	if err := models.DB.Select("id", "username", "role", "solved_count").First(&user, userID).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
 		return
 	}

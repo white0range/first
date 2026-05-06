@@ -3,6 +3,7 @@ package global
 import (
 	"context"
 	"fmt"
+	"gojo/config"
 	"log"
 
 	"github.com/redis/go-redis/v9"
@@ -17,9 +18,9 @@ var Ctx = context.Background()
 // InitRedis 负责连接启动 Redis
 func InitRedis() {
 	Rdb = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379", // 刚才 Docker 跑的端口
-		Password: "",               // 我们没设密码就留空
-		DB:       0,                // Redis 默认有 16 个库，我们用 0 号库
+		Addr:     config.AppConfig.Redis.Addr,
+		Password: config.AppConfig.Redis.Password,
+		DB:       config.AppConfig.Redis.DB,
 	})
 
 	// 测试一下连通性 (发送 PING 看看有没有 PONG)

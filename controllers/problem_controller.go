@@ -34,14 +34,14 @@ func CreateProblem(c *gin.Context) {
 		req.MemoryLimit = 256 // 默认 256MB
 	}
 
-	// 2. 将 DTO 里的测试用例，转换成准备下硬盘的 DAO 对象
-	var testCasesDAO []models.TestCase
-	for _, tcReq := range req.TestCases {
-		testCasesDAO = append(testCasesDAO, models.TestCase{
-			Input:          tcReq.Input,
-			ExpectedOutput: tcReq.ExpectedOutput,
-		})
-	}
+	//// 2. 将 DTO 里的测试用例，转换成准备下硬盘的 DAO 对象
+	//var testCasesDAO []models.TestCase
+	//for _, tcReq := range req.TestCases {
+	//	testCasesDAO = append(testCasesDAO, models.TestCase{
+	//		Input:          tcReq.Input,
+	//		ExpectedOutput: tcReq.ExpectedOutput,
+	//	})
+	//}
 
 	// 我们直接把 DTO 里的值塞进 DAO。
 	// 如果前端没传 TimeLimit，req.TimeLimit 就是 0。
@@ -51,8 +51,29 @@ func CreateProblem(c *gin.Context) {
 		Description: req.Description,
 		TimeLimit:   req.TimeLimit,
 		MemoryLimit: req.MemoryLimit,
-
-		TestCases: testCasesDAO, // 把组装好的小弟们塞进去
+	}
+	// 🎨 魔法一：处理可选的 Tags
+	// ==========================
+	if len(req.TagIDs) > 0 {
+		var tags []models.Tag
+		// 去数据库把对应的标签实体捞出来
+		models.DB.Find(&tags, req.TagIDs)
+		problem.Tags = tags // 绑定给题目
+	}
+	// ==========================
+	// 📦 魔法二：处理可选的 TestCases
+	// ==========================
+	if len(req.TestCases) > 0 {
+		var cases []models.TestCase
+		for _, tcReq := range req.TestCases {
+			cases = append(cases, models.TestCase{
+				ProblemID:      problem.ID, // 拿刚刚新建成功的题目 ID
+				Input:          tcReq.Input,
+				ExpectedOutput: tcReq.ExpectedOutput,
+			})
+		}
+		// 批量插入测试用例（极速）
+		models.DB.Create(&cases)
 	}
 
 	// 4. 呼叫包工头（GORM），执行 INSERT 语句存入数据库！
@@ -94,7 +115,7 @@ func GetProblemList(c *gin.Context) {
 	// 1. 从 URL 的问号后面拿分页参数，如果没传，就给默认值
 	pageStr := c.DefaultQuery("page", "1")
 	limitStr := c.DefaultQuery("limit", "10")
-
+	tagIDStr := c.Query("tag_id") // 👈 新增：尝试获取标签 ID，如果没传就是空字符串 ""
 	// 转换成纯数字
 	page, _ := strconv.Atoi(pageStr)
 	limit, _ := strconv.Atoi(limitStr)
@@ -107,7 +128,7 @@ func GetProblemList(c *gin.Context) {
 	} // 每页最多不超100条
 	// 2. 🔑 极其关键：拼接这页数据专属的 Redis 门牌号
 	// 比如：cache:problems:page:1:size:10
-	cacheKey := fmt.Sprintf("cache:problems:page:%d:limit:%d", page, limit)
+	cacheKey := fmt.Sprintf("cache:problems:page:%d:limit:%d:tag:%s", page, limit, tagIDStr)
 	ctx := c.Request.Context()
 	authHeader := c.GetHeader("Authorization")
 	// 在 Java 里这相当于 List<Problem>
@@ -136,9 +157,16 @@ func GetProblemList(c *gin.Context) {
 		// 🐌 阶段二：秘书不知道，老老实实去 MySQL 查
 		// ==========================================
 		fmt.Println("🐢 缓存未命中，开始苦逼地查询 MySQL...")
-
+		// 👈 修改开始：构建动态的 GORM 查询器
+		query := models.DB.Model(&models.Problem{})
+		// 如果前端传了 tag_id，立刻启动 JOIN 联表过滤！
+		if tagIDStr != "" {
+			query = query.Joins("JOIN problem_tags ON problem_tags.problem_id = problems.id").
+				Where("problem_tags.tag_id = ?", tagIDStr)
+		}
 		// 3. 先查总数 (注意：Count的时候千万不能带 limit 和 offset)
-		models.DB.Model(&models.Problem{}).Count(&total)
+		//models.DB.Model(&models.Problem{}).Count(&total)
+		query.Count(&total)
 		// 【大厂性能优化点】：Select
 		// 列表页通常只需要展示 ID、标题、通过率。
 		// 题目的 Description（描述）通常是一大段长文本，如果列表页也全查出来，会极大地浪费服务器带宽！
@@ -149,9 +177,12 @@ func GetProblemList(c *gin.Context) {
 		//Find(&problems)
 
 		// 💥 见证奇迹的时刻：干掉繁琐的 Offset 计算，直接挂载分页插件！
-		models.DB.Select("id", "title", "submit_count", "accepted_count").
-			Scopes(utils.Paginate(c)). // 👈 核心改变：所有的数学计算全在这行代码里解决了！
+		// ⚠️ 极其关键：因为用了 JOIN，Select 里的字段必须加上 "problems." 前缀，否则 MySQL 会报 Ambiguous column name (字段歧义)
+		query.Select("problems.id", "problems.title", "problems.submit_count", "problems.accepted_count").
+			Preload("Tags"). // 👈 新增：把题目关联的标签小尾巴也带上发给前端！
+			Scopes(utils.Paginate(c)).
 			Find(&problems)
+		// 👈 修改结束
 
 		res = ProblemListResponse{
 			Message: "获取题目列表成功",
@@ -183,8 +214,8 @@ func GetProblemList(c *gin.Context) {
 			claims, err := utils.ParseToken(parts[1])
 			if err == nil {
 				currentUserID, ok := (*claims)["user_id"].(float64)
-				UserID := uint(currentUserID)
 				if ok {
+					UserID := uint(currentUserID)
 					// 2. 把当前这页 10 道题的 ID 抽成一个数组
 					var pageProblemIDs []uint
 					for _, p := range problems {

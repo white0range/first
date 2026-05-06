@@ -56,3 +56,52 @@ func SubmitRateLimit() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// AIRateLimit 是专门保护 AI 钱包的每日配额限流器
+func AIRateLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDAny, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "系统异常：无法获取当前用户身份"})
+			c.Abort()
+			return
+		}
+
+		// 🚨 小细节：最好显式断言为 uint，因为传给 Sprintf 的 %d 更安全
+		userID := userIDAny.(uint)
+
+		// 1. 获取当天的日期字符串 (例如 "2026-05-05")
+		today := time.Now().Format("2006-01-02")
+
+		// 2. 拼接带有日期的专属门牌号
+		// 比如: rate_limit:ai:999:2026-05-05
+		redisKey := fmt.Sprintf("rate_limit:ai:%d:%s", userID, today)
+
+		ctx := c.Request.Context()
+
+		// 3. 核心魔法：向 Redis 请求自增
+		count, err := global.Rdb.Incr(ctx, redisKey).Result()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "系统繁忙，限流器异常"})
+			c.Abort()
+			return
+		}
+
+		// 4. 如果是今天第一次点击，给这个 Key 设置 24 小时的寿命（其实设到今晚12点更严谨，但24小时最简单）
+		if count == 1 {
+			global.Rdb.Expire(ctx, redisKey, 24*time.Hour)
+		}
+
+		// 5. 判决时刻：假设每天最多免费呼叫 3 次
+		if count > 3 {
+			c.JSON(http.StatusTooManyRequests, gin.H{ // 状态码 429
+				"error": "今日 AI 导师免费指导次数 (3/3) 已用尽，请明天再来复盘吧！",
+			})
+			c.Abort() // 🛑 无情拦截！绝对不给模型厂商送钱！
+			return
+		}
+
+		// 放行
+		c.Next()
+	}
+}

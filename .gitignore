@@ -1,0 +1,24 @@
+# 编译后的二进制可执行文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+gojo # 假设你的项目编译出来叫 gojo，也屏蔽掉
+
+# IDE 和系统配置文件
+.idea/
+.vscode/
+.DS_Store
+
+# 依赖包（Go 模块模式下不需要传 vendor）
+vendor/
+
+# 🚨 极其关键：配置文件与环境变量
+# 请确保你的数据库密码、Redis密码、JWT Secret 放在了 .env 或 config.yaml 里，并且把它们屏蔽掉！
+# 忽略真实的配置文件
+config/config.yaml
+
+# Docker 产生的数据卷目录（千万别把几 GB 的 MySQL 数据传上去了）
+redis_data/
+mysql_data/
