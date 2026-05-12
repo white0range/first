@@ -19,11 +19,13 @@ func StartPersistentSandbox(ctx context.Context, workDir string) (string, error)
 		Cmd:        []string{"sleep", "3600"},
 		WorkingDir: "/app", // 容器内的工作目录
 	}, &container.HostConfig{
-		Binds: []string{workDir + ":/app"}, // 把宿主机的代码和编译好的 exe 挂载进去
+		NetworkMode: "none",                      // 👈 绝杀！拔掉网线，让代码在一座真正的孤岛上运行！
+		Binds:       []string{workDir + ":/app"}, // 把宿主机的代码和编译好的 exe 挂载进去
 		// 这里可以加上内存和 CPU 的终极限制，防止死循环炸服
 		Resources: container.Resources{
-			Memory:   256 * 1024 * 1024, // 限制 256MB 内存
-			NanoCPUs: 1 * 1e9,           // 限制 1 个 CPU 核心
+			Memory:    256 * 1024 * 1024, // 限制 256MB 内存
+			NanoCPUs:  1 * 1e9,           // 限制 1 个 CPU 核心
+			PidsLimit: &[]int64{64}[0],   // 👈 绝杀！最多只允许 64 个进程存活
 		},
 	}, nil, nil, "")
 

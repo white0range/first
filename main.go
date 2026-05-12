@@ -7,6 +7,7 @@ import (
 	"gojo/judge"
 	"gojo/models"
 	"gojo/routes" // 导入咱们自己写的路由包 (注意这里的 go-oj 必须和你 go.mod 里的第一行 module 名字一致)
+	"gojo/services"
 	"gojo/workers"
 	"log"
 )
@@ -25,8 +26,11 @@ func main() {
 		log.Fatalf("❌ 致命错误：Docker 引擎未准备就绪, 启动失败: %v", err)
 	}
 	//log.Fatalf 等同于打印完日志后，立刻执行 os.Exit(1)，直接拔掉整个 Go 程序的电源，强行退出系统！
-
+	//初始化es
+	global.InitElasticsearch()
 	// 2. 👇 【新增】初始化 Redis
+	// 🚀 临时加这一行：全量同步数据到 ES (等终端跑完这行，以后就可以把它删了或注释掉)
+	services.SyncAllProblemsToES()
 	global.InitRedis()
 	// ==========================================
 	// 🚀 4. 【新增】启动后台工作池！我们招募 3 个工人就足够应付几千并发了。

@@ -1,0 +1,44 @@
+version: '3.8'
+services:
+  # 1. 你的 Redis 组件 (被收编进来啦)
+  redis:
+    image: redis:latest
+    container_name: oj-redis
+    restart: always      # 👈 新增：让它开机自启，崩溃自动重启！
+    ports:
+      - "6379:6379"
+    networks:
+      - oj-net
+
+  # 2. 你的 ES 搜索引擎
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: oj-es
+    restart: always      # 👈 新增：让它开机自启，崩溃自动重启！
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    networks:
+      - oj-net
+
+  # 3. ES 的可视化面板
+  kibana:
+    image: kibana:8.11.0
+    container_name: oj-kibana
+    restart: always      # 👈 新增：让它开机自启，崩溃自动重启！
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - oj-net
+
+# 定义一个统一的内部网络，它们三个现在是“内网互通”的好兄弟了
+networks:
+  oj-net:
+    driver: bridge

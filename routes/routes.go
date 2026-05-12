@@ -35,6 +35,9 @@ func SetupRouter() *gin.Engine {
 
 	r.GET("/api/tags", controllers.GetTagList) // 👈 新增：公共获取标签接口
 	r.GET("/api/leaderboard", middlewares.OptionalAuth(), controllers.GetGlobalLeaderboard)
+
+	// 搜索题目，使用 POST 是因为需要传复杂的 JSON 过滤条件
+	r.POST("/problems/search", controllers.SearchProblems)
 	// ====================
 	// 核心区域：必须通过安检 (使用中间件)
 	// ====================

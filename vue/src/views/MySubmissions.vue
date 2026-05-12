@@ -1,35 +1,37 @@
 <template>
   <div class="submissions-page">
     <div class="page-header">
-      <h1>📋 我的提交记录</h1>
+      <h1>我的提交记录</h1>
+      <span class="subtitle" v-if="!loading && total > 0">共 {{ total }} 条记录</span>
     </div>
 
     <div class="loading-center" v-if="loading">
-      <div class="spinner"></div>
+      <div class="spinner spinner-dark" style="width:32px;height:32px;border-width:3px"></div>
     </div>
 
     <template v-else-if="submissions.length > 0">
-      <div class="card">
+      <div class="card" style="padding:0;overflow:hidden">
         <div class="sub-table">
           <div class="sub-header">
             <span class="col-id">#</span>
-            <span class="col-problem">题目ID</span>
+            <span class="col-problem">题目</span>
             <span class="col-lang">语言</span>
             <span class="col-status">状态</span>
             <span class="col-time">时间</span>
             <span class="col-action"></span>
           </div>
           <div class="sub-row" v-for="item in submissions" :key="item.ID || item.id">
-            <span class="col-id">{{ item.ID || item.id }}</span>
+            <span class="col-id">#{{ item.ID || item.id }}</span>
             <span class="col-problem">
               <router-link :to="`/problems/${item.ProblemID || item.problem_id}`">
-                #{{ item.ProblemID || item.problem_id }}
+                {{ item.ProblemTitle || item.problem_title || `#${item.ProblemID || item.problem_id}` }}
               </router-link>
             </span>
             <span class="col-lang">
               <span class="lang-badge">{{ item.Language || item.language }}</span>
             </span>
             <span class="col-status">
+              <span class="status-indicator" :class="'indicator-' + (item.Status || item.status || 'Pending').toLowerCase()"></span>
               <span :class="'status-' + (item.Status || item.status || 'Pending')">
                 {{ item.Status || item.status || 'Pending' }}
               </span>
@@ -38,9 +40,10 @@
             <span class="col-action">
               <router-link
                 :to="`/submissions/${item.ID || item.id}`"
-                class="btn btn-outline btn-sm"
+                class="btn btn-ghost btn-sm"
               >
                 详情
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </router-link>
             </span>
           </div>
@@ -48,20 +51,23 @@
       </div>
 
       <div class="pagination" v-if="totalPages > 1">
-        <button :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
-        <button
-          v-for="p in visiblePages"
-          :key="p"
-          :class="{ active: p === page }"
-          @click="goPage(p)"
-        >{{ p }}</button>
-        <button :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
+        <button :disabled="page <= 1" @click="goPage(page - 1)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          上一页
+        </button>
+        <button v-for="p in visiblePages" :key="p" :class="{ active: p === page }" @click="goPage(p)">{{ p }}</button>
+        <button :disabled="page >= totalPages" @click="goPage(page + 1)">
+          下一页
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
       </div>
     </template>
 
-    <div class="empty" v-else>
-      <span>📭</span>
-      <p>还没有提交记录，快去刷题吧！</p>
+    <div class="empty-state" v-else>
+      <span class="empty-icon">📭</span>
+      <p class="empty-text">还没有提交记录</p>
+      <p class="empty-hint">快去刷题，提交你的第一份代码吧！</p>
+      <router-link to="/" class="btn btn-primary" style="margin-top:16px">去刷题</router-link>
     </div>
   </div>
 </template>
@@ -111,31 +117,68 @@ onMounted(fetchSubmissions)
 </script>
 
 <style scoped>
+.subtitle { color: var(--text-light); font-size: 14px; }
+
+.sub-table { }
 .sub-header, .sub-row {
   display: grid;
-  grid-template-columns: 60px 100px 80px 100px 1fr 80px;
+  grid-template-columns: 70px 1fr 80px 110px 1fr 80px;
   align-items: center;
-  padding: 12px 20px;
+  padding: 14px 24px;
   gap: 8px;
 }
-.sub-header { font-size: 12px; font-weight: 600; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
-.sub-row { border-bottom: 1px solid var(--border); transition: var(--transition); }
+.sub-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.sub-row {
+  border-bottom: 1px solid var(--border);
+  transition: all var(--transition);
+  font-size: 14px;
+}
+.sub-row:last-child { border-bottom: none; }
 .sub-row:hover { background: #f8faff; }
+.col-id { color: var(--text-light); font-weight: 500; }
+.col-problem a { font-weight: 600; }
 .lang-badge {
-  padding: 2px 8px;
-  border-radius: 4px;
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 5px;
   background: #f1f5f9;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
-.col-time { font-size: 12px; color: var(--text-light); }
-.empty { text-align: center; padding: 80px; color: var(--text-light); }
-.empty span { font-size: 48px; display: block; margin-bottom: 8px; }
+.col-status { display: flex; align-items: center; gap: 6px; }
+.status-indicator {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.indicator-ac { background: var(--success); }
+.indicator-wa, .indicator-error { background: var(--danger); }
+.indicator-pending { background: var(--primary); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.indicator-tle, .indicator-mle { background: #f59e0b; }
+.indicator-ce { background: #8b5cf6; }
+.col-time { font-size: 13px; color: var(--text-light); }
+.col-action { text-align: right; }
+.col-action .btn-ghost { font-size: 13px; }
+.col-action svg { width: 13px; height: 13px; }
 
-@media (max-width: 640px) {
-  .sub-header, .sub-row { grid-template-columns: 60px 1fr 80px; }
+@media (max-width: 768px) {
+  .sub-header, .sub-row { grid-template-columns: 60px 1fr 80px 70px; }
   .col-lang, .col-time { display: none; }
+}
+@media (max-width: 640px) {
+  .sub-header, .sub-row { padding: 12px 16px; grid-template-columns: 50px 1fr 60px; }
+  .col-lang, .col-time { display: none; }
+  .col-status { font-size: 12px; }
 }
 </style>
