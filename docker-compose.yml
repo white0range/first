@@ -13,7 +13,7 @@ services:
   # 2. 你的 ES 搜索引擎
   elasticsearch:
     image: elasticsearch:8.11.0
-    container_name: oj-es
+    container_name: oj-search
     restart: always      # 👈 新增：让它开机自启，崩溃自动重启！
     environment:
       - discovery.type=single-node

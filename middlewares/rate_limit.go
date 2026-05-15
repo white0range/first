@@ -2,10 +2,9 @@ package middlewares
 
 import (
 	"fmt"
+	"gojo/infrastructure/cache"
 	"net/http"
 	"time"
-
-	"gojo/global" // 引入你的 Redis 大坝
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,7 +27,7 @@ func SubmitRateLimit() gin.HandlerFunc {
 		// 3. 核心魔法：向 Redis 请求自增 1 (原子操作)
 		// 如果 key 不存在，Redis 会自动创建并设为 1
 		ctx := c.Request.Context()
-		count, err := global.Rdb.Incr(ctx, redisKey).Result()
+		count, err := cache.Rdb.Incr(ctx, redisKey).Result()
 		if err != nil {
 			// 如果 Redis 挂了，安全起见直接拦截（或者你也可以放行）
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "系统繁忙，限流器异常"})
@@ -40,7 +39,7 @@ func SubmitRateLimit() gin.HandlerFunc {
 		if count == 1 {
 			// 如果是 1，说明他是这 5 秒内的第一次请求！
 			// 立刻给这个 Key 设置 5 秒的寿命。5 秒后它会自动销毁。
-			global.Rdb.Expire(ctx, redisKey, 5*time.Second)
+			cache.Rdb.Expire(ctx, redisKey, 5*time.Second)
 		} else {
 			// 如果大于 1，说明这个 Key 还没死（5秒还没过），他又来点提交了！
 			// 直接一脚踢飞！
@@ -80,7 +79,7 @@ func AIRateLimit() gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		// 3. 核心魔法：向 Redis 请求自增
-		count, err := global.Rdb.Incr(ctx, redisKey).Result()
+		count, err := cache.Rdb.Incr(ctx, redisKey).Result()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "系统繁忙，限流器异常"})
 			c.Abort()
@@ -89,7 +88,7 @@ func AIRateLimit() gin.HandlerFunc {
 
 		// 4. 如果是今天第一次点击，给这个 Key 设置 24 小时的寿命（其实设到今晚12点更严谨，但24小时最简单）
 		if count == 1 {
-			global.Rdb.Expire(ctx, redisKey, 24*time.Hour)
+			cache.Rdb.Expire(ctx, redisKey, 24*time.Hour)
 		}
 
 		// 5. 判决时刻：假设每天最多免费呼叫 3 次

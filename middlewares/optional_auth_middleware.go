@@ -1,7 +1,7 @@
 package middlewares
 
 import (
-	"gojo/utils" // 假设你的 ParseToken 在这里
+	"gojo/pkg/jwt"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +23,7 @@ func OptionalAuth() gin.HandlerFunc {
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) == 2 && parts[0] == "Bearer" {
 			// 3. 尝试解析 Token
-			claims, err := utils.ParseToken(parts[1])
+			claims, err := jwt.ParseToken(parts[1])
 			if err == nil {
 				// 💥 只有当 Token 完全合法时，才把身份信息贴在上下文中
 				// 注意：这里 claims 里的字段名取决于你具体是怎么写 JWT 的

@@ -1,10 +1,9 @@
 package middlewares
 
 import (
+	"gojo/pkg/jwt"
 	"net/http"
 	"strings"
-
-	"gojo/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,7 +30,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// 3. 呼叫工具部门，把 token 塞进验钞机
-		claims, err := utils.ParseToken(tokenString)
+		claims, err := jwt.ParseToken(tokenString)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "安检失败：手环无效或已过期，请重新登录"})
 			c.Abort() // 驱逐！
