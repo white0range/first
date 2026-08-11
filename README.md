@@ -497,7 +497,3 @@ redis-cli ZCARD leaderboard:infrastructure
 - `AGENT_DEBUG` 在生产环境应关闭，避免日志包含模型输入、工具结果或用户代码。
 - FastAPI Agent 当前使用同步请求模式，高并发场景应评估异步 HTTP、模型限流、熔断、超时与成本预算。
 - GORM AutoMigrate 适合开发环境，正式部署应使用可审计、可回滚的版本化迁移。
-
-## License
-
-当前仓库尚未声明开源许可证。在添加 LICENSE 文件之前，请勿默认将代码用于再分发或商业授权。

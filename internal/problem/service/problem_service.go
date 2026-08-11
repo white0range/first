@@ -26,6 +26,7 @@ func NewProblemService(r repository.ProblemRepository, sr repository.ProblemSear
 	return &ProblemService{
 		repo:       r,
 		searchRepo: sr,
+		syncer:     producer,
 	}
 }
 
