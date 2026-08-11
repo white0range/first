@@ -6,6 +6,7 @@ from typing import Any
 
 from client import (
     get_candidate_problems,
+    get_failed_submission_detail,
     get_user_ac_history,
     get_user_failed_submissions,
     get_user_tag_stats,
@@ -59,6 +60,7 @@ class ToolExecutionContext:
     hybrid_candidate_calls: int = 0
     hybrid_candidate_request_key: str = ""
     hybrid_candidate_result: dict = field(default_factory=dict)
+    failure_detail_results: dict[int, dict] = field(default_factory=dict)
 
 
 def _collapse_whitespace(text: str) -> str:
@@ -292,6 +294,22 @@ def execute_tool(name: str, arguments: dict, token: str, context: ToolExecutionC
             token,
             limit=arguments.get("limit", 10),
         )
+
+    if name == "failed_submission_detail":
+        submission_id = _safe_int(arguments.get("submission_id"), 0)
+        if submission_id <= 0:
+            raise ValueError("submission_id must be positive")
+        if submission_id in context.failure_detail_results:
+            return context.failure_detail_results[submission_id]
+        if len(context.failure_detail_results) >= 3:
+            return {
+                "code": 0,
+                "message": "failed submission detail limit reached; use the existing contexts to finish the analysis",
+                "data": None,
+            }
+        result = get_failed_submission_detail(bound_user_id, submission_id, token)
+        context.failure_detail_results[submission_id] = result
+        return result
 
     if name == "user_tag_stats":
         return get_user_tag_stats(bound_user_id, token)

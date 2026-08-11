@@ -9,10 +9,6 @@ import (
 	"gojo/infrastructure/cache"
 	"gojo/infrastructure/mysql"
 	"gojo/infrastructure/search"
-	analysisHandler "gojo/internal/analysis/handler"
-	analysisRepo "gojo/internal/analysis/repository"
-	analysisSvc "gojo/internal/analysis/service"
-	analysisWorker "gojo/internal/analysis/worker"
 	"gojo/internal/app"
 	chatHandler "gojo/internal/chat/handler"
 	chatRepo "gojo/internal/chat/repository"
@@ -35,7 +31,6 @@ import (
 	userHandler "gojo/internal/user/handler"
 	userRepo "gojo/internal/user/repository"
 	userSvc "gojo/internal/user/service"
-	"gojo/pkg/ai"
 )
 
 func main() {
@@ -60,26 +55,21 @@ func main() {
 
 	jr := judgeRepo.NewJudgeRepository(syncManager)
 	lr := leaderboardRepo.NewLeaderboardRepository()
-	ar := analysisRepo.NewAnalysisRepository()
 	cr := chatRepo.NewChatRepository()
 
 	judgeService := judgeSvc.NewJudgeService(jr)
 
-	aiProvider := ai.NewAIProvider()
 	submissionService := subSvc.NewSubmissionService(subR)
 	userService := userSvc.NewUserService(ur, usr, submissionService)
 	problemService := problemSvc.NewProblemService(pr, sr, syncManager)
 	tagService := problemSvc.NewTagService(problemRepo.NewTagRepository(), syncManager)
 	testCaseService := problemSvc.NewTestCaseService(problemRepo.NewTestCaseRepository(), syncManager)
 	leaderboardService := leaderboardSvc.NewLeaderboardService(lr, userService)
-	analysisService := analysisSvc.NewAnalysisService(ar, subR)
 	chatService := chatSvc.NewChatService(cr, userService, subR, pr)
 
 	jw := judgeWorker.NewJudgeWorker(judgeService)
 	jw.StartWorkerPool(config.GlobalConfig.Judge.WorkerCount)
 
-	aw := analysisWorker.NewAnalysisWorker(ar, subR, pr, aiProvider)
-	aw.StartWorkerPool(3)
 	cw, err := chatWorker.NewChatWorker(cr)
 	if err != nil {
 		log.Fatalf("chat worker init failed: %v", err)
@@ -93,7 +83,6 @@ func main() {
 	tHandler := problemHandler.NewTagHandler(tagService)
 	tcHandler := problemHandler.NewTestCaseHandler(testCaseService)
 	searchHandler := problemHandler.NewSearchHandler(problemService)
-	aHandler := analysisHandler.NewAnalysisHandler(analysisService)
 	cHandler := chatHandler.NewChatHandler(chatService)
 
 	r := app.SetupRouter(
@@ -104,7 +93,6 @@ func main() {
 		tHandler,
 		tcHandler,
 		searchHandler,
-		aHandler,
 		cHandler,
 	)
 

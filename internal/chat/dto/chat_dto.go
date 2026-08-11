@@ -42,6 +42,18 @@ type UserFailedSubmissionsResponse struct {
 	Items  []FailedSubmissionItem `json:"items"`
 }
 
+type FailedSubmissionDetailResponse struct {
+	SubmissionID       uint     `json:"submission_id"`
+	ProblemID          uint     `json:"problem_id"`
+	ProblemTitle       string   `json:"problem_title"`
+	ProblemDescription string   `json:"problem_description"`
+	ProblemTags        []string `json:"problem_tags"`
+	Status             string   `json:"status"`
+	Language           string   `json:"language"`
+	Code               string   `json:"code"`
+	ActualOutput       string   `json:"actual_output"`
+}
+
 type TagStatItem struct {
 	TagName           string `json:"tag_name"`
 	TotalSubmissions  int    `json:"total_submissions"`

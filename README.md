@@ -1,45 +1,503 @@
 # Gojo OJ
 
-Gojo OJ 是一个 Go + Vue + FastAPI 构建的在线判题与 AI 学习助手项目。
+Gojo OJ 是一个面向算法学习场景的在线判题与 AI 学习助手平台。项目使用 Go + Gin 提供核心业务 API，以 Redis 承载缓存、异步任务和排行榜，通过 Docker Engine 隔离编译与运行用户代码，并结合 Elasticsearch、FastAPI、LangChain、Qdrant 和 DashScope Embedding 实现题目搜索、语义召回、错题分析及个性化学习建议。
 
-## 功能
+项目覆盖题目管理、代码提交、异步判题、提交记录、排行榜、用户与权限管理、AI 多轮会话和管理后台等完整链路，适合作为 Go 后端工程、异步任务、容器沙箱与 RAG Agent 的综合实践项目。
 
-- Docker 沙箱编译、运行和判题
-- 题目、标签、测试用例、提交记录和排行榜
-- Redis 旁路缓存与 Redis ZSet 排行榜
-- Elasticsearch 全文搜索与 Qdrant RAG 题目检索
-- Redis 异步同步队列，支持重试、死信和定期全量校准
-- AI Chat 会话、上下文压缩和长期记忆
+## 核心能力
 
-## Chat 架构
+- **在线判题**：提交任务进入 Redis 队列，由 Go Worker 调用本地 Docker API 完成编译、逐用例运行与结果汇总。
+- **资源隔离**：运行容器关闭网络，并限制 CPU、内存、进程数、执行时间和输出规模。
+- **题目系统**：支持题目、标签、测试用例的管理，以及分页列表、详情、标签筛选和提交记录查询。
+- **搜索与推荐**：Elasticsearch 服务后端关键词搜索，也是 Agent 混合召回中的词法通道；Qdrant 保存题目向量并提供语义召回。
+- **AI 学习助手**：LangChain Agent 可调用 AC 记录、失败提交详情、标签统计和候选题等工具，完成错题分析、薄弱点总结与学习建议。
+- **多轮记忆**：MySQL 保存完整会话和结构化回复，历史消息使用窗口与摘要压缩；Qdrant 保存用户长期向量记忆。
+- **最终一致性同步**：题目变化后通过 Redis List 异步同步 Elasticsearch 和 RAG，用户 AC 后同步 Redis ZSet 排行榜，并提供重试、租约恢复、死信与定期校准。
+- **双 Token 鉴权**：用户侧采用 Access Token + Refresh Token；Go 与 FastAPI 之间同时校验内部 Service Token 和受控 JWT。
 
-学习助手只保留 Chat 模式：
+## 系统架构
 
-1. 用户创建 `/api/chat/sessions` 并发送消息。
-2. 后端创建 `chat_turns` 记录，将回合推入 Redis `chat_turn_queue`。
-3. Chat Worker 调用 FastAPI 的 `/chat/run`，并把结构化结果保存到 `ChatTurn.Result`。
-4. 展示用消息保存在 `chat_messages`，原始结构化 JSON 保存在 `structured_payload`。
-5. 用户可对完成的回合提交 `ChatPlanFeedback`：`POST /api/chat/turns/:turn_id/feedback`。
+```mermaid
+flowchart LR
+    U["用户浏览器"] --> V["Vue 3 / Vite"]
+    V -->|"HTTP / SSE / WebSocket"| G["Go API / Gin"]
 
-独立的 `StudyPlanTask`、任务反馈、任务队列和对应 API 已删除。旧空表清理由 [20260718_remove_legacy_study_plan_tables.sql](migrations/20260718_remove_legacy_study_plan_tables.sql) 提供，需人工确认无数据后执行。
+    G --> M[("MySQL<br/>业务事实数据")]
+    G --> R[("Redis<br/>缓存、队列、ZSet")]
+    G --> E[("Elasticsearch<br/>关键词检索")]
+    G --> D["Docker Engine"]
 
-## 同步机制
+    R --> JW["Judge Worker"]
+    JW --> D
+    D --> C["编译容器 / 运行沙箱"]
+    JW --> M
+    JW -->|"WebSocket 推送"| V
 
-数据库提交后将 ES、RAG 和排行榜同步任务写入 Redis。消费者使用租约、指数退避重试和死信队列处理失败任务，并定期从 MySQL 进行全量校准。
+    R --> CW["Chat Worker"]
+    CW -->|"JWT + Service Token"| F["FastAPI / LangChain Agent"]
+    F -->|"受控工具调用"| G
+    F --> Q[("Qdrant<br/>题目向量、长期记忆")]
+    F --> L["DeepSeek Chat"]
+    F --> B["DashScope Embedding"]
 
-## 配置
+    R --> SW["Sync Worker"]
+    SW --> E
+    SW --> F
+    SW --> R
+```
 
-复制 `config/config.example.yaml` 为对应环境配置文件，并填写 MySQL、Redis、JWT、AI、Elasticsearch 与 Chat Agent 配置。
+### 组件职责
+
+| 组件 | 主要职责 |
+| --- | --- |
+| Vue 3 | 用户端与管理后台，维护双 Token，接收 SSE 回合状态和 WebSocket 判题通知 |
+| Go / Gin | 业务 API、认证授权、题目与提交管理、判题调度、Chat 调度、内部 Agent 工具接口 |
+| MySQL / GORM | 用户、题目、测试用例、提交、会话、消息、回合和反馈等事实数据 |
+| Redis | 旁路缓存、提交限流、判题队列、Chat 队列、同步队列和排行榜 ZSet |
+| Docker Engine | 编译用户代码，并在受限容器内执行测试用例 |
+| Elasticsearch | 题目关键词检索、标签精确筛选，以及 Agent 混合召回中的词法候选 |
+| FastAPI / LangChain | Agent 编排、工具调用、结构化输出、会话摘要和 RAG 同步入口 |
+| Qdrant | 题目向量集合和按用户隔离的长期会话记忆 |
+| DeepSeek | Chat Agent 推理模型 |
+| DashScope Embedding | 题目、查询和长期记忆向量化 |
+
+## 核心业务链路
+
+### 异步判题
+
+1. 用户调用 `POST /api/submit`，提交题目 ID、语言和源代码。
+2. Go 后端先把提交记录写入 MySQL，再将任务写入 Redis List `judge_queue`。
+3. Judge Worker 使用阻塞式 `BRPOP` 消费任务，通过 Docker SDK 连接宿主机 Docker Engine。
+4. 编译阶段在 `golang:alpine` 容器内分别编译用户代码和内置判题 Runner。用户代码编译失败返回 `CE`，Runner 编译失败视为系统错误。
+5. 编译成功后，为本次提交创建关闭网络的运行沙箱；多个测试用例通过 Docker Exec 依次执行，避免重复创建容器。
+6. `ContainerExecAttach` 提供本次 Exec 的实时输出流，`stdcopy.StdCopy` 将 Docker 复用流拆分为 `stdout` 和 `stderr`；Runner 输出 JSON 形式的退出码、信号、耗时、内存与程序输出。
+7. 判题服务依次判断系统错误、超时、内存超限、运行错误和输出差异，遇到首个失败用例后停止。
+8. 最终状态写回 MySQL，并通过 WebSocket 向在线用户推送 `JUDGE_RESULT`。
+
+| 状态 | 含义 |
+| --- | --- |
+| `AC` | Accepted，答案正确 |
+| `WA` | Wrong Answer，输出不匹配 |
+| `CE` | Compile Error，用户代码编译失败 |
+| `RE` | Runtime Error，非零退出或异常信号 |
+| `TLE` | Time Limit Exceeded，运行超时 |
+| `MLE` | Memory Limit Exceeded，内存超限 |
+| `SE` | System Error，Docker、Runner 或基础设施错误 |
+
+判题沙箱当前实施的主要限制：
+
+- `NetworkMode=none`，禁止用户代码访问网络。
+- 限制内存，并将 Memory Swap 设置为相同上限，避免额外交换空间。
+- 通过 `NanoCPUs` 限制 CPU，通过 `PidsLimit` 限制进程数量。
+- 编译和运行均有外层 Context 超时；用例还检查 Runner 上报的 CPU 时间、墙钟时间和最大常驻内存。
+- 用户代码与判题 Runner 分开编译，因此能够区分用户编译错误和判题基础设施错误。
+
+> 当前语言适配器只支持 Go，运行镜像为 `golang:alpine`。扩展 C++、Java 或 Python 时，需要为每种语言提供独立镜像、编译命令、运行命令和资源策略。
+
+### 题目搜索与数据同步
+
+MySQL 是题目与用户积分的事实数据源。题目新增、修改、删除或标签变化后，业务服务向 Redis 写入 ES 与 RAG 同步任务；用户首次 AC 后写入排行榜同步任务。
+
+| Redis Key | 数据结构 | 用途 |
+| --- | --- | --- |
+| `sync:pending` | List | 等待消费的同步任务 |
+| `sync:processing` | List | 已领取但尚未确认的任务 |
+| `sync:processing:leases` | ZSet | Processing 任务的租约到期时间 |
+| `sync:retry_at` | ZSet | 按下次执行时间排序的重试任务 |
+| `sync:dead_letter` | List | 超过重试次数或无法解析的任务 |
+
+Worker 通过 Lua 脚本原子地将任务从 Pending 移到 Processing 并设置租约。成功后 ACK；失败后按 `1m、5m、30m、2h、12h` 退避，最多重试 8 次。后台协程定期提升到期重试、恢复租约超时任务，并每 30 分钟从 MySQL 发起全量校准。
+
+- **Elasticsearch**：同步 `problems` 索引。查询对 `title^3` 和 `description` 执行 `multi_match`，通过 `tags.keyword` 精确筛选。
+- **Qdrant RAG**：Sync Worker 调用 FastAPI 的 `/rag/problems/sync` 或 `/rag/problems/delete`；FastAPI 从 Go API 读取题目，调用 DashScope 生成向量后写入 Qdrant。
+- **排行榜**：Redis ZSet `leaderboard:infrastructure` 以用户 ID 为 member，以 `solved_count * 10` 为 score。全量重建先写临时 Key，再通过 `RENAME` 原子替换。
+
+这套机制提供的是**最终一致性**而非分布式事务：MySQL 提交成功不代表 ES、Qdrant 与排行榜立即可见。生产环境应监控 Pending、Retry、Processing 和 Dead Letter，并提供受控死信重放能力。
+
+### AI Chat、错题分析与学习建议
+
+AI 能力统一收敛在 Chat 会话中，不再依赖独立 Study Plan 任务：
+
+1. 用户创建 Chat Session 并发送消息。
+2. Go 后端保存用户消息和 `chat_turns`，再把回合写入 `chat_turn_queue`。
+3. Chat Worker 领取任务，写入 Processing Token 与租约，并调用 FastAPI `/chat/run`。
+4. FastAPI 使用 LangChain `create_agent` 和 `ChatDeepSeek` 执行 Tool Calling。
+5. Agent 按意图读取 AC 历史、失败提交、失败代码与实际输出、标签统计和候选题目。
+6. 自然语言找题优先融合 Elasticsearch 关键词召回与 Qdrant 语义召回，再执行确定性重排。
+7. Go 将展示文本写入 `chat_messages.content`，将原始结构写入 `structured_payload` 和 Turn Result。
+8. 前端通过 SSE 监听回合状态，连接异常时回退轮询；回合完成后可继续对话或提交反馈。
+
+Agent 的主要工具：
+
+- `user_ac_history`：读取已通过题目。
+- `user_failed_submissions`：读取最近失败提交。
+- `failed_submission_detail`：读取失败代码、状态、实际输出、题面和标签，用于具体错题分析。
+- `user_tag_stats`：统计不同标签的通过情况。
+- `candidate_problems`：按标签获取未完成候选题。
+- `semantic_candidate_problems`：从 Qdrant 获取语义候选。
+- `hybrid_candidate_problems`：融合 Elasticsearch 和 Qdrant 结果并重排。
+
+结构化输出：
+
+```json
+{
+  "answer": "面向用户的分析或建议",
+  "weak_tags": ["动态规划", "图论"],
+  "recommended_problems": [
+    {
+      "problem_id": 42,
+      "title": "示例题目",
+      "reason": "推荐原因"
+    }
+  ],
+  "response_type": "analysis"
+}
+```
+
+Go 端保留最近消息窗口，并将较早消息压缩为 Session Summary；FastAPI 还会从 Qdrant 检索当前用户的长期记忆。长期记忆按 `user_id` 隔离，默认召回 Top 3。
+
+### Agent 工具访问边界
+
+Go 调用 FastAPI 时携带：
+
+- `Authorization: Bearer <JWT>`：由 Go 为受控的活动管理员服务账号签发。
+- `X-Agent-Service-Token: <shared-secret>`：Go 与 FastAPI 共享的内部密钥。
+
+FastAPI 回调 Go 的内部 Agent API 时继续携带这两个凭据。工具执行器将用户 ID 强制绑定为原始 Chat 请求中的用户，模型不能通过参数切换用户；失败提交详情接口还会在 Go 端校验提交归属，并拒绝把 AC 提交作为错题分析目标。
+
+## 缓存与排行榜
+
+项目只对明确的热点读取使用旁路缓存：
+
+| Key | TTL | 内容与失效策略 |
+| --- | --- | --- |
+| `cache:problems:page:{page}:limit:{limit}:tag:{tag}` | 1 小时 | 题目分页；题目或标签变化后批量失效 |
+| `cache:problem:detail:{id}` | 24 小时 | 题目详情；题目、标签、测试用例或判题统计变化后失效 |
+| `cache:tags:all` | 7 天 | 标签列表；标签新增或删除后失效 |
+| `rate_limit:submit:{user_id}` | 5 秒窗口 | 用户提交限流 |
+| `leaderboard:infrastructure` | 持久 | 全局排行榜，由增量同步和周期校准维护 |
+
+题目列表缓存不保存用户个性化的 `is_ac`。命中公共缓存后，服务仍会查询当前用户在本页题目的 AC 集合，避免不同用户之间串数据。
+
+## 技术栈
+
+| 层次 | 技术 |
+| --- | --- |
+| 前端 | Vue 3、Vue Router、Axios、Vite |
+| Go 后端 | Go 1.26、Gin、GORM、go-redis、Docker SDK、Elasticsearch Go Client |
+| Python Agent | Python、FastAPI、LangChain、langchain-deepseek、Pydantic |
+| 数据存储 | MySQL、Redis、Elasticsearch 8.11、Qdrant |
+| AI 服务 | DeepSeek Chat、DashScope `text-embedding-v3` |
+| 容器与运行 | Docker、Docker Compose |
+
+## 项目结构
+
+```text
+.
+├── agent/                     # FastAPI、LangChain Agent、工具执行与 RAG
+│   ├── app.py                 # Agent HTTP 入口与服务鉴权
+│   ├── langchain_runner.py    # Agent、摘要与长期记忆编排
+│   ├── tool_executor.py       # 工具边界、混合召回与重排
+│   └── rag/                   # Qdrant 索引、检索、记忆和导入工具
+├── cmd/
+│   ├── server/                # Go API、Worker 和基础设施启动入口
+│   └── seed_problems/         # 示例题目初始化命令
+├── config/                    # 多环境配置加载与示例
+├── infrastructure/           # MySQL、Redis、Elasticsearch 客户端
+├── internal/
+│   ├── app/                   # 路由、中间件、统一响应与错误码
+│   ├── chat/                  # Session、Message、Turn、Feedback 与 Worker
+│   ├── judge/                 # Docker 编译、Runner、限制和判题服务
+│   ├── leaderboard/           # Redis ZSet 排行榜
+│   ├── problem/               # 题目、标签、测试用例、缓存和 ES 搜索
+│   ├── submission/            # 提交记录与判题任务入队
+│   ├── syncer/                # ES、RAG、排行榜最终一致性任务
+│   └── user/                  # 双 Token、封禁和用户资料
+├── migrations/                # 需人工确认执行的历史 SQL
+├── vue/                       # Vue 用户端和管理后台
+├── docker-compose.yml         # Redis、ES、Kibana、Qdrant、Agent
+├── .env.example               # Agent 与向量服务环境变量示例
+└── go.mod                     # Go 模块与依赖
+```
+
+## 本地运行
+
+### 环境要求
+
+- Go 1.26，以 `go.mod` 为准
+- Node.js 18+ 与 npm
+- Docker Desktop 或 Docker Engine
+- MySQL 8.x
+- DeepSeek API Key
+- DashScope API Key
+
+> `docker-compose.yml` 只启动 Agent、Redis、Elasticsearch、Kibana 和 Qdrant，不包含 MySQL、Go 后端与 Vue 前端。
+
+### 1. 创建数据库
+
+```sql
+CREATE DATABASE gojo
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
+
+Go 后端启动时使用 GORM `AutoMigrate` 创建或补齐当前模型表。生产环境建议改为版本化迁移。
+
+### 2. 配置 Go 后端
+
+```powershell
+Copy-Item config\config.example.yaml config\config.dev.yaml
+```
+
+`APP_ENV` 默认是 `dev`，因此读取 `config/config.dev.yaml`。至少填写：
 
 ```yaml
+sql:
+  dsn: "root:password@tcp(127.0.0.1:3306)/gojo?charset=utf8mb4&parseTime=True&loc=Local"
+
+jwt:
+  secret: "replace-with-a-long-random-secret"
+
+elasticsearch:
+  addresses:
+    - "http://localhost:9200"
+
 chat:
   worker_count: 3
   agent_base_url: "http://localhost:8000"
   agent_timeout_seconds: 60
+  agent_service_token: "replace-with-another-long-random-secret"
 ```
 
-## 验证
+配置可以通过 `GOJO_` 环境变量覆盖，层级中的点转换为下划线，例如 `GOJO_SERVER_PORT`、`GOJO_REDIS_ADDR` 和 `GOJO_SQL_DSN`。
+
+### 3. 配置并启动中间件与 Agent
+
+```powershell
+Copy-Item .env.example .env
+```
+
+填写 DeepSeek 和 DashScope Key，并在 `.env` 中补充：
+
+```dotenv
+AGENT_SERVICE_TOKEN=replace-with-another-long-random-secret
+```
+
+该值必须与 `chat.agent_service_token` 完全相同，否则 Chat 和 RAG 同步会返回 `401`。
 
 ```bash
-go test ./...
+docker compose up -d --build
+docker compose ps
+docker pull golang:alpine
 ```
+
+| 服务 | 默认地址 |
+| --- | --- |
+| FastAPI Agent | `http://localhost:8000` |
+| Redis | `localhost:6379` |
+| Elasticsearch | `http://localhost:9200` |
+| Kibana | `http://localhost:5601` |
+| Qdrant HTTP | `http://localhost:6333` |
+
+### 4. 准备 Agent 服务账号
+
+Chat Worker 初始化时要求数据库至少存在一个 `role=1`、`status='active'` 且 `token_version > 0` 的用户。全新数据库首次启动会先完成 AutoMigrate，然后因缺少该账号退出。表创建后可插入一个不可登录的内部服务账号：
+
+```sql
+INSERT INTO users
+  (created_at, updated_at, username, password, solved_count, role, status, token_version)
+VALUES
+  (NOW(), NOW(), 'agent-service', 'login-disabled', 0, 1, 'active', 1);
+```
+
+其 `password` 不是合法 bcrypt Hash，不能通过登录接口认证，只用于内部签发 JWT。实际管理员可以注册普通账号后，再由数据库管理员将其 `role` 更新为 `1`。
+
+### 5. 启动 Go 后端
+
+```bash
+go mod download
+go run ./cmd/server
+```
+
+后端默认监听 `http://localhost:8080`。启动时会初始化 MySQL、Redis、Elasticsearch 与 Docker Client，启动 Judge、Chat 和 Sync Worker，恢复过期任务并发起排行榜、ES 和 Qdrant 的初始校准。
+
+### 6. 启动前端
+
+```bash
+cd vue
+npm install
+npm run dev
+```
+
+Vite 默认监听 `http://localhost:3000`，将 `/api` 和 WebSocket 请求代理到 `http://localhost:8080`。
+
+### 7. 健康检查
+
+```bash
+curl http://localhost:8080/ping
+curl http://localhost:8000/ping
+curl http://localhost:9200
+curl http://localhost:6333/collections
+```
+
+## 关键配置
+
+### Go 配置
+
+| 配置前缀 | 说明 |
+| --- | --- |
+| `server` | API 端口和 HTTP 超时 |
+| `sql` | MySQL DSN 与连接池 |
+| `redis` | Redis 地址、密码和 DB |
+| `jwt` | Access Token 与内部 Agent JWT 的签名密钥 |
+| `elasticsearch` | Elasticsearch 节点 |
+| `judge` | 判题 Worker 数和编译超时 |
+| `chat` | Chat Worker 数、Agent 地址、超时与内部 Service Token |
+
+### Agent 环境变量
+
+| 变量 | 默认值或用途 |
+| --- | --- |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key，必填 |
+| `DEEPSEEK_API_BASE` | 默认 `https://api.deepseek.com` |
+| `LLM_MODEL` | 默认 `deepseek-chat` |
+| `GO_BACKEND_BASE_URL` | Agent 容器访问 Go API，默认 `http://host.docker.internal:8080` |
+| `AGENT_SERVICE_TOKEN` | 内部密钥，必须与 Go 配置一致 |
+| `DASHSCOPE_API_KEY` | DashScope Embedding Key，必填 |
+| `EMBEDDING_MODEL` | 默认 `text-embedding-v3` |
+| `EMBEDDING_DIMENSION` | 默认 `1024`，修改后需重建 Qdrant Collection |
+| `QDRANT_URL` | Compose 内默认 `http://qdrant:6333` |
+| `MEMORY_COLLECTION` | 默认 `chat_memories` |
+| `MEMORY_TOP_K` | 默认 `3` |
+| `AGENT_DEBUG` | 调试日志开关，生产环境应关闭 |
+
+## API 概览
+
+受保护接口需携带 `Authorization: Bearer <access_token>`。
+
+| 模块 | 方法与路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| 健康检查 | `GET /ping` | 公开 | Go 服务健康检查 |
+| 认证 | `POST /api/register` | 公开 | 注册 |
+| 认证 | `POST /api/login` | 公开 | 登录并获取双 Token |
+| 认证 | `POST /api/refresh` | 公开 | 刷新 Token |
+| 认证 | `POST /api/logout` | 公开 | 注销 Refresh Session |
+| 题目 | `GET /api/problems` | 公开/可选登录 | 分页、标签筛选和用户 AC 状态 |
+| 题目 | `GET /api/problems/:id` | 公开 | 题目详情 |
+| 搜索 | `POST /api/problems/search` | 公开 | ES 关键词与标签搜索 |
+| 提交 | `POST /api/submit` | 登录 | 创建提交并进入判题队列 |
+| 提交 | `GET /api/submissions/:id` | 登录 | 查询自己的提交 |
+| 提交 | `GET /api/my-submissions` | 登录 | 个人提交记录 |
+| 排行榜 | `GET /api/leaderboard` | 公开/可选登录 | Top 50 与个人排名 |
+| 实时通知 | `GET /api/ws` | 登录 | 判题结果 WebSocket |
+| Chat | `POST /api/chat/sessions` | 登录 | 创建会话 |
+| Chat | `GET /api/chat/sessions` | 登录 | 会话列表 |
+| Chat | `GET /api/chat/sessions/:id/messages` | 登录 | 会话消息 |
+| Chat | `POST /api/chat/sessions/:id/messages` | 登录 | 发送消息并创建回合 |
+| Chat | `GET /api/chat/turns/:id` | 登录 | 查询回合状态 |
+| Chat | `GET /api/chat/turns/:id/stream` | 登录 | SSE 监听回合 |
+| Chat | `POST /api/chat/turns/:id/feedback` | 登录 | 提交 ChatPlanFeedback |
+| 管理后台 | `/api/admin/*` | 管理员 | 用户、题目、标签与测试用例管理 |
+| Agent 工具 | `/api/admin/agent/*` | 管理员 + Service Token | FastAPI 内部工具调用 |
+
+## 数据模型
+
+- `users`：用户、角色、状态、已解决题数与 Token Version。
+- `problems`、`tags`、`test_cases`：题目、标签关系与测试数据。
+- `submissions`：代码、语言、状态、输出、耗时与内存。
+- `chat_sessions`：会话元数据和历史摘要。
+- `chat_messages`：用户/助手消息与结构化 Payload。
+- `chat_turns`：异步回合、状态、租约和结果。
+- `chat_plan_feedbacks`：用户对已完成 Chat 回合的反馈。
+
+旧版 Study Plan 表不再由当前代码使用。确认旧表没有有效数据后，可执行：
+
+```bash
+mysql -u root -p gojo < migrations/20260718_remove_legacy_study_plan_tables.sql
+```
+
+## 测试与构建
+
+### Go
+
+```bash
+go test -count=1 ./...
+go build ./...
+```
+
+判题集成测试需要本地 Docker Engine 和 `golang:alpine` 镜像。
+
+### Python
+
+```bash
+python -m compileall agent
+```
+
+宿主机直接运行 Agent：
+
+```bash
+python -m pip install -r agent/requirements.txt
+uvicorn app:app --app-dir agent --host 0.0.0.0 --port 8000
+```
+
+### 前端
+
+```bash
+cd vue
+npm run build
+```
+
+## 运维与排障
+
+### RAG 同步返回 401
+
+确认 `.env` 中存在 `AGENT_SERVICE_TOKEN`，并与 Go 配置完全相同。修改后重建 Agent：
+
+```bash
+docker compose up -d --build agent
+```
+
+### 判题无法连接 Docker
+
+- 确认 Docker Desktop/Engine 正在运行。
+- 确认 Go 进程有权限访问 Docker API。
+- Linux 环境检查 `/var/run/docker.sock` 权限。
+- 使用 `docker version` 和 `docker image inspect golang:alpine` 验证连接与镜像。
+
+### Chat 长时间停留在 Pending 或 Running
+
+- 检查 `chat_turn_queue` 和 `chat_turn_processing`。
+- 检查 Go 到 Agent 的连通性，以及 Agent 到 `GO_BACKEND_BASE_URL` 的反向连通性。
+- 检查活动管理员服务账号、JWT Secret 和 Service Token。
+- Chat Worker 以数据库状态为事实来源，并使用 Processing Token、租约续期和超时扫描恢复陈旧回合。
+
+### 中文搜索召回较弱
+
+当前 ES 使用动态 Mapping，未内置 IK 中文分词器。默认 Standard Analyzer 对中文长文本切词能力有限。生产环境建议安装与 ES 版本一致的 IK 插件，为 `title` 和 `description` 显式配置 `ik_max_word` 索引分词与 `ik_smart` 查询分词，并在 Mapping 变更后重建索引。
+
+### 同步队列积压
+
+```bash
+redis-cli LLEN sync:pending
+redis-cli LLEN sync:processing
+redis-cli ZCARD sync:retry_at
+redis-cli LLEN sync:dead_letter
+redis-cli ZCARD leaderboard:infrastructure
+```
+
+不要直接删除 Processing 或 Dead Letter。应先定位 ES、Agent、Embedding 或 Qdrant 错误，再通过受控流程重放。
+
+## 安全与生产化边界
+
+- Docker Socket 是高权限系统接口。当前方案适合本地开发与受控环境；公网多租户部署应使用独立 Judge 节点、更严格的容器运行时、只读文件系统、非 root 用户、seccomp/AppArmor 和任务审计。
+- 当前判题只支持 Go，并依赖公共 `golang:alpine`。生产环境应固定镜像 Digest 并预拉取到 Judge 节点。
+- Redis List 是项目内实现的轻量可靠队列，不等同于 Kafka 或 RabbitMQ；需要补充监控、死信重放、幂等审计和容量规划。
+- Elasticsearch 与 Qdrant 是最终一致性副本，业务写入和搜索可见之间存在延迟。
+- API Key、JWT Secret、MySQL 密码和 Service Token 不应提交 Git，应由 Secret Manager 或部署平台注入。
+- `AGENT_DEBUG` 在生产环境应关闭，避免日志包含模型输入、工具结果或用户代码。
+- FastAPI Agent 当前使用同步请求模式，高并发场景应评估异步 HTTP、模型限流、熔断、超时与成本预算。
+- GORM AutoMigrate 适合开发环境，正式部署应使用可审计、可回滚的版本化迁移。
+
+## License
+
+当前仓库尚未声明开源许可证。在添加 LICENSE 文件之前，请勿默认将代码用于再分发或商业授权。

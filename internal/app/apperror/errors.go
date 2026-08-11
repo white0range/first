@@ -12,10 +12,8 @@ var (
 	ErrUserBanned         = errors.New("user banned")
 
 	ErrUnauthorizedAccess = errors.New("unauthorized access")
-	ErrSubmissionNotFound = errors.New("submission not found")
 	ErrForbidden          = errors.New("forbidden")
 	ErrAlreadyAccepted    = errors.New("already accepted")
-	ErrAIConnectFailed    = errors.New("ai connect failed")
 	ErrChatSessionBusy    = errors.New("chat session has active turn")
 
 	ErrInvalidID       = errors.New("invalid id")

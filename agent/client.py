@@ -37,6 +37,10 @@ def get_user_failed_submissions(user_id: int, token: str, limit: int = 10) -> di
     )
 
 
+def get_failed_submission_detail(user_id: int, submission_id: int, token: str) -> dict:
+    return _get(f"/api/admin/agent/users/{user_id}/failed-submissions/{submission_id}", token)
+
+
 def get_user_tag_stats(user_id: int, token: str) -> dict:
     return _get(f"/api/admin/agent/users/{user_id}/tag-stats", token)
 

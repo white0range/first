@@ -415,6 +415,35 @@ func (h *ChatHandler) GetUserFailedSubmissions(c *gin.Context) {
 	response.OK(c, data)
 }
 
+func (h *ChatHandler) GetFailedSubmissionDetail(c *gin.Context) {
+	userID, ok := parseUserID(c)
+	if !ok {
+		return
+	}
+	submissionIDUint64, err := strconv.ParseUint(c.Param("submission_id"), 10, 64)
+	if err != nil {
+		response.FailWithMessage(c, http.StatusBadRequest, ecode.InvalidParams, "invalid submission id")
+		return
+	}
+
+	data, err := h.svc.GetFailedSubmissionDetail(c.Request.Context(), userID, uint(submissionIDUint64))
+	if err != nil {
+		switch {
+		case errors.Is(err, apperror.ErrForbidden):
+			response.FailWithMessage(c, http.StatusForbidden, ecode.Forbidden, "cannot access other users' submissions")
+		case errors.Is(err, apperror.ErrAlreadyAccepted):
+			response.FailWithMessage(c, http.StatusConflict, ecode.InvalidParams, "accepted submissions are not failure-analysis targets")
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.FailWithMessage(c, http.StatusNotFound, ecode.NotFound, "submission or problem not found")
+		default:
+			response.FailWithMessage(c, http.StatusInternalServerError, ecode.InternalError, "get failed submission detail failed")
+		}
+		return
+	}
+
+	response.OK(c, data)
+}
+
 // GetUserTagStats 鏉╂柨娲栭悽銊﹀煕閸︺劌鎮囬弽鍥╊劮娑撳娈戠紒鍐х瘎缂佺喕顓搁敍宀€鏁ゆ禍搴ょ槕閸掝偉鏉藉杈╁仯閵?
 func (h *ChatHandler) GetUserTagStats(c *gin.Context) {
 	userID, ok := parseUserID(c)

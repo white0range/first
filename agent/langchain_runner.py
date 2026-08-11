@@ -53,6 +53,10 @@ class FailedSubmissionArgs(BaseModel):
     limit: int = Field(default=10, ge=1, le=20, description="返回的失败提交记录最大数量")
 
 
+class FailedSubmissionDetailArgs(BaseModel):
+    submission_id: int = Field(ge=1, description="需要分析的失败提交 ID")
+
+
 class RuleCandidateArgs(BaseModel):
     tags: list[str] = Field(description="用于规则候选题检索的目标标签")
     exclude_ids: list[int] = Field(description="需要排除的题目 ID")
@@ -185,6 +189,16 @@ def _build_tools(token: str, context: ToolExecutionContext, bound_user_id: int) 
         """获取用户最近的失败提交记录。"""
         return execute_tool("user_failed_submissions", {"limit": limit}, token, context, bound_user_id)
 
+    def failed_submission_detail(submission_id: int) -> dict:
+        """获取单次失败提交的源码、判题输出、题目描述和标签。"""
+        return execute_tool(
+            "failed_submission_detail",
+            {"submission_id": submission_id},
+            token,
+            context,
+            bound_user_id,
+        )
+
     def user_tag_stats() -> dict:
         """获取按标签聚合的用户训练统计。"""
         return execute_tool("user_tag_stats", {}, token, context, bound_user_id)
@@ -234,6 +248,7 @@ def _build_tools(token: str, context: ToolExecutionContext, bound_user_id: int) 
     return [
         StructuredTool.from_function(func=user_ac_history, args_schema=EmptyArgs),
         StructuredTool.from_function(func=user_failed_submissions, args_schema=FailedSubmissionArgs),
+        StructuredTool.from_function(func=failed_submission_detail, args_schema=FailedSubmissionDetailArgs),
         StructuredTool.from_function(func=user_tag_stats, args_schema=EmptyArgs),
         StructuredTool.from_function(func=candidate_problems, args_schema=RuleCandidateArgs),
         StructuredTool.from_function(func=semantic_candidate_problems, args_schema=SemanticCandidateArgs),
@@ -388,6 +403,8 @@ def run_chat_with_langchain(
             "你既要回答直接的算法或 OJ 问题，也要提供个性化训练建议。"
             "如果最新用户消息是基础问题，请清晰直接地回答；除非推荐确实有帮助，否则保持推荐部分为空。"
             "如果最新用户消息要求练习建议或学习计划，请使用工具生成个性化回复。"
+            "如果用户要求分析错题、失败代码或判题错误，先调用 user_failed_submissions 确认提交 ID，再调用 failed_submission_detail 获取完整上下文。"
+            "错题分析应结合源码、判题状态、实际输出和题目描述定位原因；无法确定隐藏测试时不得臆造期望输出。"
             "可用工具包括用户历史工具、基于规则的候选题检索工具、语义检索工具，以及关键词加语义的混合检索工具。"
             "自然语言检索优先使用 hybrid_candidate_problems；标签明确时使用 candidate_problems；只有混合检索仍不足时才使用 semantic_candidate_problems。"
             "会话摘要和长期记忆只能作为辅助上下文，应优先满足最新用户请求。"

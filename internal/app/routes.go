@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	analysisHandler "gojo/internal/analysis/handler"
 	middlewares2 "gojo/internal/app/middlewares"
 	chatHandler "gojo/internal/chat/handler"
 	leaderboardHandler "gojo/internal/leaderboard/handler"
@@ -22,7 +21,6 @@ func SetupRouter(
 	tHandler *problemHandler.TagHandler,
 	tcHandler *problemHandler.TestCaseHandler,
 	searchHandler *problemHandler.SearchHandler,
-	analysisHandler *analysisHandler.AnalysisHandler,
 	chatHandler *chatHandler.ChatHandler,
 ) *gin.Engine {
 	r := gin.Default()
@@ -65,10 +63,10 @@ func SetupRouter(
 			adminGroup.POST("/tags", tHandler.CreateTag)
 			adminGroup.DELETE("/tags/:id", tHandler.DeleteTag)
 			adminGroup.PUT("/problems/:id/tags", pHandler.UpdateProblemTags)
-			adminGroup.GET("/analysis/stats", analysisHandler.GetAdminStats)
 
 			adminGroup.GET("/agent/users/:id/ac-history", chatHandler.GetUserACHistory)
 			adminGroup.GET("/agent/users/:id/failed-submissions", chatHandler.GetUserFailedSubmissions)
+			adminGroup.GET("/agent/users/:id/failed-submissions/:submission_id", chatHandler.GetFailedSubmissionDetail)
 			adminGroup.GET("/agent/users/:id/tag-stats", chatHandler.GetUserTagStats)
 			adminGroup.GET("/agent/problems/candidates", chatHandler.GetCandidateProblems)
 			adminGroup.GET("/agent/problems/:id", chatHandler.GetProblemDetail)
@@ -81,11 +79,6 @@ func SetupRouter(
 		protected.GET("/my-submissions", sHandler.GetMySubmissions)
 
 		protected.GET("/ws", uHandler.ConnectWS)
-
-		protected.POST("/analysis/tasks", analysisHandler.CreateAnalysisTask)
-		protected.GET("/analysis/tasks/:id", analysisHandler.GetAnalysisTask)
-		protected.POST("/analysis/tasks/:id/feedback", analysisHandler.SubmitFeedback)
-		protected.GET("/analysis/tasks/:id/feedback", analysisHandler.GetFeedback)
 
 		protected.GET("/chat/sessions", chatHandler.ListSessions)
 		protected.POST("/chat/sessions", chatHandler.CreateSession)

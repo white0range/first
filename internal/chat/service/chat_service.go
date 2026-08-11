@@ -28,6 +28,7 @@ type UserProfileProvider interface {
 
 // SubmissionDataProvider 閹绘劒绶电拋顓犵矊鐠佲€冲灊闂団偓鐟曚胶娈戦幓鎰唉閸樺棗褰堕弫鐗堝祦閵?
 type SubmissionDataProvider interface {
+	GetSubmissionByID(ctx context.Context, id string) (*submissionModel.Submission, error)
 	GetAllSubmissionsByUserID(ctx context.Context, userID uint) ([]submissionModel.Submission, error)
 	GetRecentFailedSubmissionsByUserID(ctx context.Context, userID uint, limit int) ([]submissionModel.Submission, error)
 }
@@ -115,6 +116,44 @@ func (s *ChatService) GetUserFailedSubmissions(ctx context.Context, userID uint,
 	return &dto.UserFailedSubmissionsResponse{
 		UserID: userID,
 		Items:  items,
+	}, nil
+}
+
+func (s *ChatService) GetFailedSubmissionDetail(ctx context.Context, userID uint, submissionID uint) (*dto.FailedSubmissionDetailResponse, error) {
+	if s.submissions == nil || s.problems == nil {
+		return nil, errors.New("chat providers not configured")
+	}
+
+	submission, err := s.submissions.GetSubmissionByID(ctx, strconv.FormatUint(uint64(submissionID), 10))
+	if err != nil {
+		return nil, err
+	}
+	if submission.UserID != userID {
+		return nil, apperror.ErrForbidden
+	}
+	if submission.Status == "AC" {
+		return nil, apperror.ErrAlreadyAccepted
+	}
+
+	problem, err := s.problems.GetProblemByID(ctx, strconv.FormatUint(uint64(submission.ProblemID), 10))
+	if err != nil {
+		return nil, err
+	}
+	tagNames := make([]string, 0, len(problem.Tags))
+	for _, tag := range problem.Tags {
+		tagNames = append(tagNames, tag.Name)
+	}
+
+	return &dto.FailedSubmissionDetailResponse{
+		SubmissionID:       submission.ID,
+		ProblemID:          submission.ProblemID,
+		ProblemTitle:       problem.Title,
+		ProblemDescription: problem.Description,
+		ProblemTags:        tagNames,
+		Status:             submission.Status,
+		Language:           submission.Language,
+		Code:               submission.Code,
+		ActualOutput:       submission.ActualOutput,
 	}, nil
 }
 

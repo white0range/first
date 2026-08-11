@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"gojo/config"
-	analysisModel "gojo/internal/analysis/model"
 	chatModel "gojo/internal/chat/model"
 	problemModel "gojo/internal/problem/model"
 	submissionModel "gojo/internal/submission/model"
@@ -44,8 +43,6 @@ func InitDB() {
 		&submissionModel.Submission{},
 		&problemModel.TestCase{},
 		&problemModel.Tag{},
-		&analysisModel.AnalysisTask{},
-		&analysisModel.AnalysisFeedback{},
 		&chatModel.ChatSession{},
 		&chatModel.ChatMessage{},
 		&chatModel.ChatTurn{},
