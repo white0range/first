@@ -3,11 +3,11 @@ package dto
 import "time"
 
 type CreateChatSessionRequest struct {
-	Title string `json:"title"`
+	Title string `json:"title" binding:"max=200"`
 }
 
 type SendChatMessageRequest struct {
-	Content string `json:"content" binding:"required"`
+	Content string `json:"content" binding:"required,max=8000"`
 }
 
 type ChatTurnQueueTask struct {
@@ -16,7 +16,7 @@ type ChatTurnQueueTask struct {
 
 type SubmitChatPlanFeedbackRequest struct {
 	Helpful bool   `json:"helpful"`
-	Comment string `json:"comment"`
+	Comment string `json:"comment" binding:"max=2000"`
 }
 
 // The following response types are consumed by the internal Chat agent tools.

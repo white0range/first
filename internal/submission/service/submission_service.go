@@ -2,21 +2,23 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"gojo/internal/app/apperror"
+	judgeDTO "gojo/internal/judge/dto"
+	judgeQueue "gojo/internal/judge/queue"
 	"gojo/internal/submission/dto"
 	"gojo/internal/submission/model"
 	"gojo/internal/submission/repository"
 )
 
 type SubmissionService struct {
-	repo repository.SubmissionRepository
+	repo  repository.SubmissionRepository
+	queue *judgeQueue.Queue
 }
 
 func NewSubmissionService(r repository.SubmissionRepository) *SubmissionService {
-	return &SubmissionService{repo: r}
+	return &SubmissionService{repo: r, queue: judgeQueue.New()}
 }
 
 func (s *SubmissionService) SubmitCode(ctx context.Context, userID uint, req dto.SubmitRequest) (*model.Submission, error) {
@@ -31,24 +33,11 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, userID uint, req dto
 		return nil, fmt.Errorf("create submission failed: %w", err)
 	}
 
-	task := map[string]interface{}{
-		"user_id":       userID,
-		"submission_id": submission.ID,
-		"problem_id":    req.ProblemID,
-		"code":          req.Code,
-	}
-
-	taskBytes, err := json.Marshal(task)
-	if err != nil {
-		return nil, fmt.Errorf("marshal judge task failed: %w", err)
-	}
-
-	if err := s.repo.PushToJudgeQueue(ctx, taskBytes); err != nil {
-		submission.Status = "judge_failed"
-		if err2 := s.repo.UpdateSubmissionStatus(ctx, submission.ID, submission.Status); err2 != nil {
-			return nil, fmt.Errorf("update submission status failed: %w, push judge queue failed: %w", err2, err)
-		}
-		return nil, fmt.Errorf("push judge queue failed: %w", err)
+	task := judgeDTO.NewJudgeTask(submission.ID, req.ProblemID, userID, req.Code)
+	if _, err := s.queue.Enqueue(ctx, task); err != nil {
+		// Keep the record Pending so the worker's MySQL reconciler can enqueue it
+		// after a temporary Redis outage instead of losing the submission.
+		return nil, fmt.Errorf("enqueue judge task failed: %w", err)
 	}
 
 	return &submission, nil

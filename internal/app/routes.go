@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gojo/config"
 	middlewares2 "gojo/internal/app/middlewares"
 	chatHandler "gojo/internal/chat/handler"
 	leaderboardHandler "gojo/internal/leaderboard/handler"
@@ -24,6 +25,7 @@ func SetupRouter(
 	chatHandler *chatHandler.ChatHandler,
 ) *gin.Engine {
 	r := gin.Default()
+	r.Use(middlewares2.RequestBodyLimit(config.GlobalConfig.Server.MaxRequestBodyBytes))
 
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{

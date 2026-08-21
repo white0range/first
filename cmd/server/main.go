@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	"time"
 
 	"gojo/config"
 	"gojo/infrastructure/cache"
@@ -67,7 +70,7 @@ func main() {
 	leaderboardService := leaderboardSvc.NewLeaderboardService(lr, userService)
 	chatService := chatSvc.NewChatService(cr, userService, subR, pr)
 
-	jw := judgeWorker.NewJudgeWorker(judgeService)
+	jw := judgeWorker.NewJudgeWorker(judgeService, subR)
 	jw.StartWorkerPool(config.GlobalConfig.Judge.WorkerCount)
 
 	cw, err := chatWorker.NewChatWorker(cr)
@@ -97,9 +100,25 @@ func main() {
 	)
 
 	addr := fmt.Sprintf(":%d", config.GlobalConfig.Server.Port)
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: secondsDuration(config.GlobalConfig.Server.ReadHeaderTimeoutSeconds),
+		ReadTimeout:       secondsDuration(config.GlobalConfig.Server.ReadTimeoutSeconds),
+		WriteTimeout:      secondsDuration(config.GlobalConfig.Server.WriteTimeoutSeconds),
+		IdleTimeout:       secondsDuration(config.GlobalConfig.Server.IdleTimeoutSeconds),
+		MaxHeaderBytes:    config.GlobalConfig.Server.MaxHeaderBytes,
+	}
 	fmt.Printf("server listening on %s\n", addr)
 
-	if err := r.Run(addr); err != nil {
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server start failed: %v", err)
 	}
+}
+
+func secondsDuration(seconds int) time.Duration {
+	if seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
 }

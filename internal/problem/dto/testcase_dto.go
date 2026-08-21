@@ -7,8 +7,8 @@ import "gojo/internal/problem/model"
 // 专门用于接收前端传来的单个测试用例数据
 // =====================================
 type TestCaseRequest struct {
-	Input          string `json:"input" binding:"required"`
-	ExpectedOutput string `json:"expected_output" binding:"required"`
+	Input          string `json:"input" binding:"required,max=65536"`
+	ExpectedOutput string `json:"expected_output" binding:"required,max=65536"`
 }
 
 // TestCaseListResponse 专属的列表返回对象

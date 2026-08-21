@@ -16,7 +16,8 @@ import (
 
 type JudgeRepository interface {
 	GetProblemWithCases(ctx context.Context, problemID uint) (*model.Problem, error)
-	UpdateJudgeResult(ctx context.Context, subID, problemID, userID uint, status, output string, timeCost, memoryCost int) error
+	IsSubmissionPending(ctx context.Context, subID uint) (bool, error)
+	UpdateJudgeResult(ctx context.Context, subID, problemID, userID uint, status, output string, timeCost, memoryCost int) (bool, error)
 }
 
 type judgeRepoMysql struct {
@@ -33,21 +34,39 @@ func (r *judgeRepoMysql) GetProblemWithCases(ctx context.Context, problemID uint
 	return &problem, err
 }
 
-func (r *judgeRepoMysql) UpdateJudgeResult(ctx context.Context, subID, problemID, userID uint, status, output string, timeCost, memoryCost int) error {
+func (r *judgeRepoMysql) IsSubmissionPending(ctx context.Context, subID uint) (bool, error) {
+	var count int64
+	err := mysql.DB.WithContext(ctx).
+		Model(&submodel.Submission{}).
+		Where("id = ? AND status = ?", subID, "Pending").
+		Count(&count).Error
+	return count == 1, err
+}
+
+// UpdateJudgeResult only transitions a Pending submission. This makes task
+// retries safe when a worker completed judging but failed before acknowledging
+// the Redis task.
+func (r *judgeRepoMysql) UpdateJudgeResult(ctx context.Context, subID, problemID, userID uint, status, output string, timeCost, memoryCost int) (bool, error) {
 	firstAC := false
+	updated := false
 	err := mysql.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&submodel.Submission{}).Where("id = ?", subID).Updates(map[string]interface{}{
+		result := tx.Model(&submodel.Submission{}).Where("id = ? AND status = ?", subID, "Pending").Updates(map[string]interface{}{
 			"status":        status,
 			"actual_output": output,
 			"time_cost":     timeCost,
 			"memory_cost":   memoryCost,
-		}).Error; err != nil {
-			return err
+		})
+		if result.Error != nil {
+			return result.Error
 		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		updated = true
+
 		if err := tx.Model(&model.Problem{}).Where("id = ?", problemID).UpdateColumn("submit_count", gorm.Expr("submit_count + ?", 1)).Error; err != nil {
 			return err
 		}
-
 		if status != "AC" {
 			return nil
 		}
@@ -67,8 +86,8 @@ func (r *judgeRepoMysql) UpdateJudgeResult(ctx context.Context, subID, problemID
 		}
 		return nil
 	})
-	if err != nil {
-		return err
+	if err != nil || !updated {
+		return updated, err
 	}
 
 	cacheutil.InvalidateProblem(ctx, problemID, "judge result")
@@ -80,5 +99,5 @@ func (r *judgeRepoMysql) UpdateJudgeResult(ctx context.Context, subID, problemID
 			log.Printf("enqueue leaderboard score sync for user %d failed: %v", userID, err)
 		}
 	}
-	return nil
+	return true, nil
 }

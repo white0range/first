@@ -6,10 +6,13 @@ app:
 
 server:
   port: 8080
-  read_timeout_seconds: 10
-  write_timeout_seconds: 10
+  read_header_timeout_seconds: 5
+  read_timeout_seconds: 15
+  # Must remain 0 while Chat SSE is served directly by Go.
+  write_timeout_seconds: 0
   idle_timeout_seconds: 60
-
+  max_header_bytes: 1048576
+  max_request_body_bytes: 1048576
 sql:
   dsn: ""
   max_open_conns: 20

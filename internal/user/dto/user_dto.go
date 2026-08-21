@@ -3,12 +3,12 @@ package dto
 import "time"
 
 type UserAuthRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required,min=6"`
+	Username string `json:"username" binding:"required,max=32"`
+	Password string `json:"password" binding:"required,min=6,max=128"`
 }
 
 type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+	RefreshToken string `json:"refresh_token" binding:"required,max=4096"`
 }
 
 type TokenPairResponse struct {
@@ -26,7 +26,7 @@ type UserProfileResponse struct {
 }
 
 type BanUserRequest struct {
-	Reason string `json:"reason"`
+	Reason string `json:"reason" binding:"max=500"`
 }
 
 type AdminUserItem struct {

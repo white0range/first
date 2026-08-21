@@ -1,4 +1,4 @@
-﻿package sandbox
+package sandbox
 
 import (
 	"bytes"
@@ -36,12 +36,22 @@ type runnerExecResult struct {
 }
 
 const (
-	linuxSIGXCPU            = 24
-	defaultCompileTimeout   = 45 * time.Second
-	judgeRuntimeImage       = "golang:alpine"
+	linuxSIGXCPU          = 24
+	defaultCompileTimeout = 45 * time.Second
+	judgeRuntimeImage     = "golang:alpine"
+	judgeContainerUser    = "65532:65532"
+
+	compileMemoryLimitBytes = 512 * 1024 * 1024
+	compileNanoCPUs         = 1 * 1e9
+	compilePidsLimit        = 128
+	runtimePidsLimit        = 64
 )
 
 func CompileCode(ctx context.Context, code string, workDir string) (bool, string, error) {
+	if err := prepareWorkDir(workDir); err != nil {
+		return false, "", fmt.Errorf("prepare judge workdir permissions failed: %w", err)
+	}
+
 	codePath := filepath.Join(workDir, "main.go")
 	if err := os.WriteFile(codePath, []byte(code), 0644); err != nil {
 		return false, "", fmt.Errorf("write solution code failed: %w", err)
@@ -53,15 +63,33 @@ func CompileCode(ctx context.Context, code string, workDir string) (bool, string
 	resp, err := docker.DockerClient.ContainerCreate(ctx,
 		&container.Config{
 			Image:      judgeRuntimeImage,
+			User:       judgeContainerUser,
 			WorkingDir: "/app",
+			Env: []string{
+				"HOME=/tmp",
+				"GOCACHE=/tmp/go-build",
+				"GOTMPDIR=/tmp",
+				"CGO_ENABLED=0",
+			},
 			Cmd: []string{
 				"sh",
 				"-c",
-				"if ! GO111MODULE=off go build -o solution main.go; then exit 11; fi; if ! GO111MODULE=off go build -o .judge/runner .judge/runner.go; then exit 12; fi",
+				"ulimit -f 65536; if ! GO111MODULE=off go build -o solution main.go; then exit 11; fi; if ! GO111MODULE=off go build -o .judge/runner .judge/runner.go; then exit 12; fi",
 			},
 		},
 		&container.HostConfig{
-			Binds: []string{workDir + ":/app"},
+			NetworkMode:    "none",
+			Binds:          []string{workDir + ":/app:rw"},
+			ReadonlyRootfs: true,
+			CapDrop:        []string{"ALL"},
+			SecurityOpt:    []string{"no-new-privileges:true"},
+			Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,size=128m"},
+			Resources: container.Resources{
+				Memory:     compileMemoryLimitBytes,
+				MemorySwap: compileMemoryLimitBytes,
+				NanoCPUs:   compileNanoCPUs,
+				PidsLimit:  int64Ptr(compilePidsLimit),
+			},
 		}, nil, nil, "")
 	if err != nil {
 		return false, "", err
@@ -137,16 +165,21 @@ func StartPersistentSandbox(ctx context.Context, workDir string, memoryLimitMB i
 
 	resp, err := docker.DockerClient.ContainerCreate(ctx, &container.Config{
 		Image:      judgeRuntimeImage,
+		User:       judgeContainerUser,
 		Cmd:        []string{"sleep", "3600"},
 		WorkingDir: "/app",
 	}, &container.HostConfig{
-		NetworkMode: "none",
-		Binds:       []string{workDir + ":/app"},
+		NetworkMode:    "none",
+		Binds:          []string{workDir + ":/app:ro"},
+		ReadonlyRootfs: true,
+		CapDrop:        []string{"ALL"},
+		SecurityOpt:    []string{"no-new-privileges:true"},
+		Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,noexec,size=16m"},
 		Resources: container.Resources{
 			Memory:     memoryLimitBytes,
 			MemorySwap: memoryLimitBytes,
-			NanoCPUs:   1 * 1e9,
-			PidsLimit:  &[]int64{64}[0],
+			NanoCPUs:   compileNanoCPUs,
+			PidsLimit:  int64Ptr(runtimePidsLimit),
 		},
 	}, nil, nil, "")
 	if err != nil {
@@ -282,10 +315,23 @@ func RemoveSandbox(ctx context.Context, containerID string) {
 
 func writeJudgeRunner(workDir string) error {
 	judgeDir := filepath.Join(workDir, ".judge")
-	if err := os.MkdirAll(judgeDir, 0755); err != nil {
+	if err := os.MkdirAll(judgeDir, 0777); err != nil {
+		return err
+	}
+	if err := os.Chmod(judgeDir, 0777); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(judgeDir, "runner.go"), []byte(judgeRunnerSource), 0644)
+}
+
+func prepareWorkDir(workDir string) error {
+	// The compiler runs as an unprivileged UID. This directory is unique to one
+	// submission and is mounted read-only during execution.
+	return os.Chmod(workDir, 0777)
+}
+
+func int64Ptr(value int64) *int64 {
+	return &value
 }
 
 func isMemoryLimitExceeded(result runnerExecResult, memoryLimitKB int) bool {

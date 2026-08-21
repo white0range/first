@@ -26,10 +26,13 @@ type AppInfoConfig struct {
 }
 
 type ServerConfig struct {
-	Port                int `mapstructure:"port"`
-	ReadTimeoutSeconds  int `mapstructure:"read_timeout_seconds"`
-	WriteTimeoutSeconds int `mapstructure:"write_timeout_seconds"`
-	IdleTimeoutSeconds  int `mapstructure:"idle_timeout_seconds"`
+	Port                     int   `mapstructure:"port"`
+	ReadHeaderTimeoutSeconds int   `mapstructure:"read_header_timeout_seconds"`
+	ReadTimeoutSeconds       int   `mapstructure:"read_timeout_seconds"`
+	WriteTimeoutSeconds      int   `mapstructure:"write_timeout_seconds"`
+	IdleTimeoutSeconds       int   `mapstructure:"idle_timeout_seconds"`
+	MaxHeaderBytes           int   `mapstructure:"max_header_bytes"`
+	MaxRequestBodyBytes      int64 `mapstructure:"max_request_body_bytes"`
 }
 
 type SQLConfig struct {
@@ -88,9 +91,14 @@ func InitConfig() {
 
 	viper.SetDefault("app.env", env)
 	viper.SetDefault("server.port", 8080)
-	viper.SetDefault("server.read_timeout_seconds", 10)
-	viper.SetDefault("server.write_timeout_seconds", 10)
+	viper.SetDefault("server.read_header_timeout_seconds", 5)
+	viper.SetDefault("server.read_timeout_seconds", 15)
+	// Chat uses SSE, so response deadlines are managed by the proxy and the
+	// stream heartbeat instead of a global Go write timeout.
+	viper.SetDefault("server.write_timeout_seconds", 0)
 	viper.SetDefault("server.idle_timeout_seconds", 60)
+	viper.SetDefault("server.max_header_bytes", 1<<20)
+	viper.SetDefault("server.max_request_body_bytes", int64(1<<20))
 
 	viper.SetDefault("sql.max_open_conns", 20)
 	viper.SetDefault("sql.max_idle_conns", 10)
